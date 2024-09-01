@@ -1,8 +1,23 @@
 use std::sync::Arc;
 
 use vulkano::{
-    command_buffer::{pool::{CommandBufferAllocateInfo, CommandPoolAlloc, CommandPoolCreateFlags, CommandPoolCreateInfo}, sys::CommandBufferBeginInfo, AutoCommandBufferBuilder, CommandBufferLevel, CommandBufferUsage},
+    command_buffer::{
+        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
+        pool::{
+            CommandBufferAllocateInfo, CommandPoolAlloc, CommandPoolCreateFlags,
+            CommandPoolCreateInfo,
+        },
+        AutoCommandBufferBuilder, CommandBufferLevel, CommandBufferUsage, PrimaryAutoCommandBuffer,
+        PrimaryCommandBufferAbstract, RenderPassBeginInfo, SubpassBeginInfo,
+    },
     device::{physical::PhysicalDevice, Device},
+    format::ClearValue,
+    pipeline::{
+        self,
+        graphics::viewport::{Scissor, Viewport},
+        GraphicsPipeline,
+    },
+    render_pass::{Framebuffer, RenderPass},
     swapchain::Surface,
 };
 
@@ -10,7 +25,8 @@ use super::queue_family::QueueFamilyIndices;
 
 pub struct CommandPool {
     command_pool: vulkano::command_buffer::pool::CommandPool,
-    queue_family_index: u32,
+    command_buffer_allocator: StandardCommandBufferAllocator,
+    graph_family_index: u32,
 }
 
 impl CommandPool {
@@ -23,47 +39,72 @@ impl CommandPool {
             ..Default::default()
         };
 
-        CommandPool {
-            command_pool: vulkano::command_buffer::pool::CommandPool::new(
-                dev,
-                command_pool_create_info,
-            )
-            .unwrap(),
-            queue_family_index: queue_families.graphics_family.unwrap()
-        }
-    }
-
-    pub fn alloc_buffer(&self) -> CommandBuffer {
-        let alloc_info = CommandBufferAllocateInfo {
-            level: CommandBufferLevel::Primary,
-            command_buffer_count: 1,
+        let command_buffer_allocator_info = StandardCommandBufferAllocatorCreateInfo {
+            primary_buffer_count: 1,
+            secondary_buffer_count: 0,
             ..Default::default()
         };
 
-        let command_pool_alloc = self.command_pool
-            .allocate_command_buffers(alloc_info)
-            .unwrap()
-            .last()
-            .unwrap();
-
-        AutoCommandBufferBuilder::primary(&self.command_pool, self.queue_family_index, CommandBufferUsage::MultipleSubmit)
-    }
-}
-
-pub struct CommandBuffer {
-    pool_alloc: CommandPoolAlloc,
-}
-
-impl CommandBuffer {
-    pub fn new(command_pool_alloc: CommandPoolAlloc, family_index: u32) -> Self {
-
-        CommandBuffer {
-            pool_alloc: command_pool_alloc
+        CommandPool {
+            command_pool: vulkano::command_buffer::pool::CommandPool::new(
+                dev.clone(),
+                command_pool_create_info,
+            )
+            .unwrap(),
+            command_buffer_allocator: StandardCommandBufferAllocator::new(
+                dev.clone(),
+                command_buffer_allocator_info,
+            ),
+            graph_family_index: queue_families.graphics_family.unwrap(),
         }
     }
 
-    pub fn record_command(&self) {
-        let command_buffer_begin_info = CommandBufferBeginInfo::default();
-        self.pool_alloc.
+    pub fn record_render_pass(
+        &self,
+        render_pass: Arc<RenderPass>,
+        framebuffer: Arc<Framebuffer>,
+        pipeline: Arc<GraphicsPipeline>,
+        extent: [u32; 2],
+    ) -> Arc<PrimaryAutoCommandBuffer> {
+        let mut command_builder = AutoCommandBufferBuilder::primary(
+            &self.command_buffer_allocator,
+            self.graph_family_index,
+            CommandBufferUsage::MultipleSubmit,
+        )
+        .unwrap();
+
+        let mut render_pass_info = RenderPassBeginInfo::framebuffer(framebuffer);
+        render_pass_info.render_pass = render_pass;
+        render_pass_info.render_area_offset = [0, 0];
+        render_pass_info.render_area_extent = extent;
+        render_pass_info.clear_values =
+            vec![Some(ClearValue::Float([0.0f32, 0.0f32, 0.0f32, 1.0f32]))];
+
+        command_builder.begin_render_pass(
+            render_pass_info,
+            SubpassBeginInfo {
+                contents: vulkano::command_buffer::SubpassContents::Inline,
+                ..Default::default()
+            },
+        );
+
+        command_builder.bind_pipeline_graphics(pipeline);
+
+        let viewport: Viewport = Viewport {
+            offset: [0.0f32, 0.0f32],
+            depth_range: 0.0f32..=1.0f32,
+            extent: [extent[0] as f32, extent[1] as f32],
+        };
+        command_builder.set_viewport(0, vec![viewport].into());
+
+        let scissor = Scissor {
+            extent,
+            offset: [0, 0],
+        };
+        command_builder.set_scissor(0, vec![scissor].into());
+
+        command_builder.draw(3, 1, 0, 0);
+
+        command_builder.build().unwrap()
     }
 }

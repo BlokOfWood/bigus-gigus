@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use vulkano::{
-    command_buffer::pool::CommandPoolAlloc,
+    command_buffer::{pool::CommandPoolAlloc, PrimaryAutoCommandBuffer},
     device::{
         physical::PhysicalDevice, Device, DeviceCreateInfo, DeviceExtensions, Features,
         QueueCreateInfo,
@@ -37,7 +37,11 @@ use vulkano::{
     swapchain::{
         CompositeAlpha, Surface, SurfaceCapabilities, SurfaceInfo, Swapchain, SwapchainCreateInfo,
     },
-    sync::Sharing,
+    sync::{
+        fence::{Fence, FenceCreateFlags, FenceCreateInfo},
+        semaphore::{Semaphore, SemaphoreCreateInfo},
+        Sharing,
+    },
     VulkanLibrary,
 };
 use winit::{
@@ -47,9 +51,7 @@ use winit::{
 use crate::vulkan::queue_family::QueueFamilyIndices;
 
 use super::{
-    command_pool::{CommandBuffer, CommandPool},
-    queue_family::QueueFamilies,
-    shader::Shaders,
+    command_pool::CommandPool, queue_family::QueueFamilies, shader::Shaders,
     swap_chain::SwapChainSupport,
 };
 
@@ -72,7 +74,9 @@ pub struct VulkanRenderer {
     graphics_pipeline: Arc<GraphicsPipeline>,
     frame_buffers: Vec<Arc<Framebuffer>>,
     command_pool: CommandPool,
-    command_buffer: CommandBuffer,
+    image_available: Semaphore,
+    render_finished: Semaphore,
+    in_flight: Fence,
 }
 
 impl VulkanRenderer {
@@ -104,12 +108,11 @@ impl VulkanRenderer {
         let frame_buffers = Self::create_frame_buffers(render_pass.clone(), &image_views, extent);
 
         let command_pool = CommandPool::new(dev.clone(), phys_dev.clone(), surface.clone());
-        let command_buffer = command_pool.alloc_buffer();
 
         VulkanRenderer {
             inst,
             phys_dev,
-            dev,
+            dev: dev.clone(),
             queues,
             surface,
             swap_chain,
@@ -122,7 +125,16 @@ impl VulkanRenderer {
             graphics_pipeline,
             frame_buffers,
             command_pool,
-            command_buffer,
+            image_available: Semaphore::new(dev.clone(), SemaphoreCreateInfo::default()).unwrap(),
+            render_finished: Semaphore::new(dev.clone(), SemaphoreCreateInfo::default()).unwrap(),
+            in_flight: Fence::new(
+                dev.clone(),
+                FenceCreateInfo {
+                    flags: FenceCreateFlags::SIGNALED,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
         }
     }
 
