@@ -1,0 +1,10 @@
+[package]
+name = "bigus-gigus"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+vulkano = { version = "*" }
+winit = { version = "*", features = ["rwh_05"] }
+nalgebra = "*"
+ahash = "*"

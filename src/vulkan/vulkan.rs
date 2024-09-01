@@ -1,0 +1,488 @@
+use std::sync::Arc;
+
+use vulkano::{
+    command_buffer::pool::CommandPoolAlloc,
+    device::{
+        physical::PhysicalDevice, Device, DeviceCreateInfo, DeviceExtensions, Features,
+        QueueCreateInfo,
+    },
+    format::Format,
+    image::{
+        sampler::ComponentMapping,
+        view::{ImageView, ImageViewCreateInfo, ImageViewType},
+        Image, ImageAspects, ImageLayout, ImageSubresourceRange, ImageUsage, SampleCount,
+    },
+    instance::{Instance, InstanceCreateInfo},
+    pipeline::{
+        graphics::{
+            color_blend::{ColorBlendAttachmentState, ColorBlendState, ColorComponents},
+            input_assembly::{InputAssemblyState, PrimitiveTopology},
+            multisample::MultisampleState,
+            rasterization::{CullMode, FrontFace, PolygonMode, RasterizationState},
+            subpass::PipelineSubpassType,
+            vertex_input::VertexInputState,
+            viewport::{Scissor, Viewport, ViewportState},
+            GraphicsPipelineCreateInfo,
+        },
+        layout::PipelineLayoutCreateInfo,
+        DynamicState, GraphicsPipeline, PipelineCreateFlags, PipelineLayout,
+        PipelineShaderStageCreateInfo,
+    },
+    render_pass::{
+        AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp,
+        Framebuffer, FramebufferCreateInfo, RenderPass, RenderPassCreateInfo, Subpass,
+        SubpassDescription,
+    },
+    shader::EntryPoint,
+    swapchain::{
+        CompositeAlpha, Surface, SurfaceCapabilities, SurfaceInfo, Swapchain, SwapchainCreateInfo,
+    },
+    sync::Sharing,
+    VulkanLibrary,
+};
+use winit::{
+    event_loop::ActiveEventLoop, raw_window_handle_05::HasRawDisplayHandle, window::Window,
+};
+
+use crate::vulkan::queue_family::QueueFamilyIndices;
+
+use super::{
+    command_pool::{CommandBuffer, CommandPool},
+    queue_family::QueueFamilies,
+    shader::Shaders,
+    swap_chain::SwapChainSupport,
+};
+
+const ENGINE_NAME: &str = "Very cool engine";
+const APPLICATION_NAME: &str = "Very cool application";
+
+pub struct VulkanRenderer {
+    inst: Arc<Instance>,
+    phys_dev: Arc<PhysicalDevice>,
+    dev: Arc<Device>,
+    queues: QueueFamilies,
+    surface: Arc<Surface>,
+    swap_chain: Arc<Swapchain>,
+    images: Vec<Arc<Image>>,
+    image_format: Format,
+    image_extent: [u32; 2],
+    image_views: Vec<Arc<ImageView>>,
+    render_pass: Arc<RenderPass>,
+    pipeline_layout: Arc<PipelineLayout>,
+    graphics_pipeline: Arc<GraphicsPipeline>,
+    frame_buffers: Vec<Arc<Framebuffer>>,
+    command_pool: CommandPool,
+    command_buffer: CommandBuffer,
+}
+
+impl VulkanRenderer {
+    pub fn new(window: Arc<Window>, event_loop: &ActiveEventLoop) -> Self {
+        let inst = Self::create_vulkan_instance(event_loop);
+        let surface = Surface::from_window(inst.clone(), window.clone())
+            .expect("Failed to create surface from window.");
+        let phys_dev = Self::create_vulkan_physical_device(inst.clone(), surface.clone());
+
+        let (dev, queues) = Self::create_device_and_queues(phys_dev.clone(), surface.clone());
+
+        let (swap_chain, images, format, extent) = Self::create_swap_chain(
+            phys_dev.clone(),
+            dev.clone(),
+            surface.clone(),
+            phys_dev
+                .clone()
+                .surface_capabilities(Arc::as_ref(&surface), SurfaceInfo::default())
+                .unwrap(),
+            window,
+        );
+
+        let image_views = Self::create_image_views(&images, format);
+
+        let render_pass = Self::create_render_pass(dev.clone(), format);
+        let (pipeline_layout, graphics_pipeline) =
+            Self::create_graphics_pipeline(dev.clone(), render_pass.clone(), extent);
+
+        let frame_buffers = Self::create_frame_buffers(render_pass.clone(), &image_views, extent);
+
+        let command_pool = CommandPool::new(dev.clone(), phys_dev.clone(), surface.clone());
+        let command_buffer = command_pool.alloc_buffer();
+
+        VulkanRenderer {
+            inst,
+            phys_dev,
+            dev,
+            queues,
+            surface,
+            swap_chain,
+            images,
+            image_format: format,
+            image_extent: extent,
+            image_views,
+            render_pass,
+            pipeline_layout,
+            graphics_pipeline,
+            frame_buffers,
+            command_pool,
+            command_buffer,
+        }
+    }
+
+    fn create_vulkan_instance(event_loop: &impl HasRawDisplayHandle) -> Arc<Instance> {
+        let vk_library = VulkanLibrary::new().expect("Vulkan unavailable");
+        println!(
+            "Loaded Vulkan with version: {}. Extension count: {}",
+            vk_library.api_version(),
+            vk_library.supported_extensions().into_iter().count()
+        );
+
+        let mut enabled_extensions = Surface::required_extensions(event_loop);
+        let mut enabled_layers = Vec::new();
+
+        if cfg!(debug_assertions) {
+            println!("Enabling validation layers");
+            enabled_extensions.ext_debug_utils = true;
+            enabled_layers.push("VK_LAYER_KHRONOS_validation".to_string());
+        }
+
+        let instance_info = InstanceCreateInfo {
+            application_name: Some(APPLICATION_NAME.to_string()),
+            engine_name: Some(ENGINE_NAME.to_string()),
+            enabled_extensions,
+            enabled_layers,
+            ..Default::default()
+        };
+
+        Instance::new(vk_library, instance_info).expect("Failed to create Vulkan instance")
+    }
+
+    fn create_vulkan_physical_device(
+        vk_instance: Arc<Instance>,
+        vk_surface: Arc<Surface>,
+    ) -> Arc<PhysicalDevice> {
+        let vk_phys_dev = vk_instance
+            .enumerate_physical_devices()
+            .unwrap()
+            .find(|device| Self::is_device_suitable(device, vk_surface.clone()))
+            .expect("No physical devices found");
+
+        println!("Using device: {}", vk_phys_dev.properties().device_name);
+
+        vk_phys_dev
+    }
+
+    fn create_device_and_queues(
+        vk_phys_dev: Arc<PhysicalDevice>,
+        vk_surface: Arc<Surface>,
+    ) -> (Arc<Device>, QueueFamilies) {
+        let queue_family_indicies =
+            QueueFamilyIndices::find_queue_families(vk_phys_dev.clone(), vk_surface.clone());
+
+        let graphics_queue_create_info = QueueCreateInfo {
+            queue_family_index: queue_family_indicies.graphics_family.unwrap(),
+            queues: vec![1f32],
+            ..Default::default()
+        };
+        let presentation_queue_create_info = QueueCreateInfo {
+            queue_family_index: queue_family_indicies.presentation_family.unwrap(),
+            queues: vec![1f32],
+            ..Default::default()
+        };
+
+        let enabled_features = Features::default();
+
+        let mut enabled_extensions = DeviceExtensions::default();
+        enabled_extensions.khr_swapchain = true;
+
+        let device_create_info = DeviceCreateInfo {
+            queue_create_infos: vec![graphics_queue_create_info, presentation_queue_create_info],
+            enabled_features,
+            enabled_extensions,
+            ..Default::default()
+        };
+        let (vk_dev, mut vk_queue) = Device::new(vk_phys_dev.clone(), device_create_info)
+            .expect("Failed to create logical device for phyisical device.");
+
+        let graphics_queue = vk_queue
+            .find(|queue| {
+                queue.queue_family_index() == queue_family_indicies.graphics_family.unwrap()
+            })
+            .unwrap();
+        let presentation_queue = vk_queue
+            .find(|queue| {
+                queue.queue_family_index() == queue_family_indicies.presentation_family.unwrap()
+            })
+            .unwrap();
+
+        (
+            vk_dev,
+            QueueFamilies {
+                graphics_queue,
+                presentation_queue,
+            },
+        )
+    }
+
+    fn create_swap_chain(
+        phys_dev: Arc<PhysicalDevice>,
+        dev: Arc<Device>,
+        surface: Arc<Surface>,
+        capabilities: SurfaceCapabilities,
+        window: Arc<Window>,
+    ) -> (Arc<Swapchain>, Vec<Arc<Image>>, Format, [u32; 2]) {
+        let swap_chain_support = SwapChainSupport::new(phys_dev.clone(), surface.clone());
+
+        let surface_format = swap_chain_support.choose_surface_format();
+        let present_mode = swap_chain_support.choose_present_mode();
+        let swap_extent = Self::choose_swap_extent(capabilities, window.clone());
+
+        let max_image_count = swap_chain_support.capabilities.max_image_count.unwrap();
+        let mut image_count = swap_chain_support.capabilities.min_image_count + 1;
+
+        if max_image_count > 0 && image_count > max_image_count {
+            image_count = max_image_count;
+        };
+
+        let query_family_indicies =
+            QueueFamilyIndices::find_queue_families(phys_dev.clone(), surface.clone());
+        let sharing_mode = if query_family_indicies.graphics_family.unwrap()
+            == query_family_indicies.presentation_family.unwrap()
+        {
+            Sharing::Concurrent(
+                vec![
+                    query_family_indicies.graphics_family.unwrap(),
+                    query_family_indicies.presentation_family.unwrap(),
+                ]
+                .into(),
+            )
+        } else {
+            Sharing::Exclusive
+        };
+
+        let create_info = SwapchainCreateInfo {
+            min_image_count: image_count,
+            image_format: surface_format.0,
+            image_color_space: surface_format.1,
+            image_extent: swap_extent,
+            image_array_layers: 1,
+            image_usage: ImageUsage::COLOR_ATTACHMENT,
+            image_sharing: sharing_mode,
+            pre_transform: swap_chain_support.capabilities.current_transform,
+            composite_alpha: CompositeAlpha::Opaque,
+            present_mode,
+            clipped: true,
+            ..Default::default()
+        };
+
+        let create_results = Swapchain::new(dev, surface.clone(), create_info).unwrap();
+
+        (
+            create_results.0,
+            create_results.1,
+            surface_format.0,
+            swap_extent,
+        )
+    }
+
+    fn is_device_suitable(device: &Arc<PhysicalDevice>, surface: Arc<Surface>) -> bool {
+        let queue_families =
+            QueueFamilyIndices::find_queue_families(device.clone(), surface.clone());
+        let swap_chain_support = SwapChainSupport::new(device.clone(), surface.clone());
+
+        return queue_families.has_required_families()
+            && device.supported_extensions().khr_swapchain
+            && !swap_chain_support.formats.is_empty()
+            && !swap_chain_support.present_modes.is_empty();
+    }
+
+    fn choose_swap_extent(capabilities: SurfaceCapabilities, window: Arc<Window>) -> [u32; 2] {
+        let current_extent = capabilities.current_extent.unwrap();
+        if current_extent[0] != u32::MAX {
+            return capabilities.current_extent.unwrap();
+        } else {
+            let inner_size = window.inner_size();
+            let width = inner_size.width.clamp(
+                capabilities.min_image_extent[0],
+                capabilities.max_image_extent[0],
+            );
+            let height = inner_size.height.clamp(
+                capabilities.min_image_extent[1],
+                capabilities.max_image_extent[1],
+            );
+
+            [width, height]
+        }
+    }
+
+    fn create_image_views(
+        swap_chain_images: &Vec<Arc<Image>>,
+        image_format: Format,
+    ) -> Vec<Arc<ImageView>> {
+        let mut image_views: Vec<Arc<ImageView>> = Vec::with_capacity(swap_chain_images.len());
+
+        for image in swap_chain_images {
+            let create_info = ImageViewCreateInfo {
+                view_type: ImageViewType::Dim2d,
+                format: image_format,
+                component_mapping: ComponentMapping::identity(),
+                subresource_range: ImageSubresourceRange {
+                    array_layers: 0..1,
+                    aspects: ImageAspects::COLOR,
+                    mip_levels: 0..1,
+                },
+                ..Default::default()
+            };
+
+            let image_view = ImageView::new(image.clone(), create_info);
+            image_views.push(image_view.unwrap());
+        }
+
+        image_views
+    }
+
+    fn create_render_pass(dev: Arc<Device>, image_format: Format) -> Arc<RenderPass> {
+        let color_attachment = AttachmentDescription {
+            format: image_format,
+            samples: SampleCount::Sample1,
+            load_op: AttachmentLoadOp::Clear,
+            store_op: AttachmentStoreOp::Store,
+            stencil_load_op: Some(AttachmentLoadOp::DontCare),
+            stencil_store_op: Some(AttachmentStoreOp::DontCare),
+            initial_layout: ImageLayout::Undefined,
+            final_layout: ImageLayout::PresentSrc,
+            ..Default::default()
+        };
+
+        let color_attachment_ref = AttachmentReference {
+            attachment: 0,
+            layout: ImageLayout::ColorAttachmentOptimal,
+            ..Default::default()
+        };
+
+        let subpass_desc = SubpassDescription {
+            color_attachments: vec![Some(color_attachment_ref)],
+            ..Default::default()
+        };
+
+        let render_pass_create_info = RenderPassCreateInfo {
+            attachments: vec![color_attachment],
+            subpasses: vec![subpass_desc],
+            ..Default::default()
+        };
+
+        RenderPass::new(dev, render_pass_create_info).unwrap()
+    }
+
+    fn create_graphics_pipeline(
+        dev: Arc<Device>,
+        render_pass: Arc<RenderPass>,
+        image_extent: [u32; 2],
+    ) -> (Arc<PipelineLayout>, Arc<GraphicsPipeline>) {
+        let shaders = Shaders::new(dev.clone(), "vert.spv", "frag.spv");
+
+        let vert_entry_point: EntryPoint = shaders.vert_shader.single_entry_point().unwrap();
+        let vert_stage_info = PipelineShaderStageCreateInfo::new(vert_entry_point);
+        let frag_entry_point: EntryPoint = shaders.frag_shader.single_entry_point().unwrap();
+        let frag_stage_info = PipelineShaderStageCreateInfo::new(frag_entry_point);
+
+        let vertex_input_state = VertexInputState::new();
+        let input_assembly_state = InputAssemblyState {
+            topology: PrimitiveTopology::TriangleList,
+            primitive_restart_enable: false,
+            ..Default::default()
+        };
+        let viewport = Viewport {
+            offset: [0f32, 0f32],
+            extent: [image_extent[0] as f32, image_extent[1] as f32],
+            depth_range: 0f32..=1f32,
+        };
+        let scissor = Scissor {
+            offset: [0, 0],
+            extent: image_extent,
+        };
+        let viewport_state = ViewportState {
+            viewports: [viewport].into(),
+            scissors: [scissor].into(),
+            ..Default::default()
+        };
+
+        let rasterization_state = RasterizationState {
+            depth_clamp_enable: false,
+            rasterizer_discard_enable: false,
+            polygon_mode: PolygonMode::Fill,
+            line_width: 1.0f32,
+            cull_mode: CullMode::Back,
+            front_face: FrontFace::Clockwise,
+            depth_bias: None,
+            ..Default::default()
+        };
+
+        let multisample_state = MultisampleState {
+            sample_shading: None,
+            rasterization_samples: SampleCount::Sample1,
+            ..Default::default()
+        };
+
+        let color_blend_attachment = ColorBlendAttachmentState {
+            color_write_enable: true,
+            color_write_mask: ColorComponents::all(),
+            blend: None,
+            ..Default::default()
+        };
+
+        let color_blending = ColorBlendState {
+            logic_op: None,
+            attachments: vec![color_blend_attachment],
+            ..Default::default()
+        };
+
+        let pipeline_layout_info = PipelineLayoutCreateInfo {
+            ..Default::default()
+        };
+
+        let pipeline_layout = PipelineLayout::new(dev.clone(), pipeline_layout_info).unwrap();
+
+        let subpass = Subpass::from(render_pass, 0).unwrap();
+
+        let mut graphics_pipeline_create_info =
+            GraphicsPipelineCreateInfo::layout(pipeline_layout.clone());
+        graphics_pipeline_create_info.stages = vec![vert_stage_info, frag_stage_info].into();
+        graphics_pipeline_create_info.vertex_input_state = Some(vertex_input_state);
+        graphics_pipeline_create_info.input_assembly_state = Some(input_assembly_state);
+        graphics_pipeline_create_info.viewport_state = Some(viewport_state);
+        graphics_pipeline_create_info.rasterization_state = Some(rasterization_state);
+        graphics_pipeline_create_info.multisample_state = Some(multisample_state);
+        graphics_pipeline_create_info.depth_stencil_state = None;
+        graphics_pipeline_create_info.color_blend_state = Some(color_blending);
+        graphics_pipeline_create_info.dynamic_state =
+            ahash::HashSet::from_iter([DynamicState::Viewport, DynamicState::Scissor]);
+        graphics_pipeline_create_info.subpass = Some(PipelineSubpassType::BeginRenderPass(subpass));
+        graphics_pipeline_create_info.base_pipeline = None;
+        graphics_pipeline_create_info.tessellation_state = None;
+        graphics_pipeline_create_info.discard_rectangle_state = None;
+        graphics_pipeline_create_info.flags = PipelineCreateFlags::empty();
+
+        (
+            pipeline_layout,
+            GraphicsPipeline::new(dev.clone(), None, graphics_pipeline_create_info).unwrap(),
+        )
+    }
+
+    fn create_frame_buffers(
+        render_pass: Arc<RenderPass>,
+        image_views: &Vec<Arc<ImageView>>,
+        image_extent: [u32; 2],
+    ) -> Vec<Arc<Framebuffer>> {
+        image_views
+            .iter()
+            .map(|image_view| {
+                let framebuffer_create_info = FramebufferCreateInfo {
+                    attachments: vec![image_view.clone()],
+                    extent: image_extent,
+                    layers: 1,
+                    ..Default::default()
+                };
+
+                Framebuffer::new(render_pass.clone(), framebuffer_create_info).unwrap()
+            })
+            .collect()
+    }
+}
