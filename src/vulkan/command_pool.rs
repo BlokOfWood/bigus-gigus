@@ -5,10 +5,10 @@ use vulkano::{
         allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
         pool::{
             CommandBufferAllocateInfo, CommandPoolAlloc, CommandPoolCreateFlags,
-            CommandPoolCreateInfo,
+            CommandPoolCreateInfo, CommandPoolResetFlags,
         },
         AutoCommandBufferBuilder, CommandBufferLevel, CommandBufferUsage, PrimaryAutoCommandBuffer,
-        PrimaryCommandBufferAbstract, RenderPassBeginInfo, SubpassBeginInfo,
+        PrimaryCommandBufferAbstract, RenderPassBeginInfo, SubpassBeginInfo, SubpassEndInfo,
     },
     device::{physical::PhysicalDevice, Device},
     format::ClearValue,
@@ -66,6 +66,12 @@ impl CommandPool {
         pipeline: Arc<GraphicsPipeline>,
         extent: [u32; 2],
     ) -> Arc<PrimaryAutoCommandBuffer> {
+        unsafe {
+            self.command_pool
+                .reset(CommandPoolResetFlags::empty())
+                .unwrap()
+        };
+
         let mut command_builder = AutoCommandBufferBuilder::primary(
             &self.command_buffer_allocator,
             self.graph_family_index,
@@ -80,30 +86,38 @@ impl CommandPool {
         render_pass_info.clear_values =
             vec![Some(ClearValue::Float([0.0f32, 0.0f32, 0.0f32, 1.0f32]))];
 
-        command_builder.begin_render_pass(
-            render_pass_info,
-            SubpassBeginInfo {
-                contents: vulkano::command_buffer::SubpassContents::Inline,
-                ..Default::default()
-            },
-        );
+        command_builder
+            .begin_render_pass(
+                render_pass_info,
+                SubpassBeginInfo {
+                    contents: vulkano::command_buffer::SubpassContents::Inline,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
 
-        command_builder.bind_pipeline_graphics(pipeline);
+        command_builder.bind_pipeline_graphics(pipeline).unwrap();
 
         let viewport: Viewport = Viewport {
             offset: [0.0f32, 0.0f32],
             depth_range: 0.0f32..=1.0f32,
             extent: [extent[0] as f32, extent[1] as f32],
         };
-        command_builder.set_viewport(0, vec![viewport].into());
+        command_builder
+            .set_viewport(0, vec![viewport].into())
+            .unwrap();
 
         let scissor = Scissor {
             extent,
             offset: [0, 0],
         };
-        command_builder.set_scissor(0, vec![scissor].into());
+        command_builder
+            .set_scissor(0, vec![scissor].into())
+            .unwrap();
 
-        command_builder.draw(3, 1, 0, 0);
+        command_builder.draw(3, 1, 0, 0).unwrap();
+
+        command_builder.end_render_pass(SubpassEndInfo::default()).unwrap();
 
         command_builder.build().unwrap()
     }

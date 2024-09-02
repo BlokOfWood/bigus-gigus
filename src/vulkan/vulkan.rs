@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, vec};
 
 use vulkano::{
     command_buffer::{pool::CommandPoolAlloc, PrimaryAutoCommandBuffer},
@@ -31,16 +31,18 @@ use vulkano::{
     render_pass::{
         AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp,
         Framebuffer, FramebufferCreateInfo, RenderPass, RenderPassCreateInfo, Subpass,
-        SubpassDescription,
+        SubpassDependency, SubpassDescription,
     },
     shader::EntryPoint,
     swapchain::{
-        CompositeAlpha, Surface, SurfaceCapabilities, SurfaceInfo, Swapchain, SwapchainCreateInfo,
+        acquire_next_image, CompositeAlpha, Surface, SurfaceCapabilities, SurfaceInfo, Swapchain,
+        SwapchainCreateInfo, SwapchainPresentInfo,
     },
     sync::{
+        self,
         fence::{Fence, FenceCreateFlags, FenceCreateInfo},
         semaphore::{Semaphore, SemaphoreCreateInfo},
-        Sharing,
+        AccessFlags, GpuFuture, PipelineStages, Sharing,
     },
     VulkanLibrary,
 };
@@ -138,6 +140,30 @@ impl VulkanRenderer {
         }
     }
 
+    pub fn draw_frame(&self) {
+        let (image_idx, is_optimal, image_future) =
+            acquire_next_image(self.swap_chain.clone(), None).unwrap();
+
+        let command_buffer = self.command_pool.record_render_pass(
+            self.render_pass.clone(),
+            self.frame_buffers[image_idx as usize].clone(),
+            self.graphics_pipeline.clone(),
+            self.image_extent,
+        );
+        sync::now(self.dev.clone())
+            .join(image_future)
+            .then_execute(self.queues.graphics_queue.clone(), command_buffer.clone())
+            .unwrap()
+            .then_swapchain_present(
+                self.queues.presentation_queue.clone(),
+                SwapchainPresentInfo::swapchain_image_index(self.swap_chain.clone(), image_idx),
+            )
+            .then_signal_fence_and_flush()
+            .unwrap()
+            .wait(None)
+            .unwrap();
+    }
+
     fn create_vulkan_instance(event_loop: &impl HasRawDisplayHandle) -> Arc<Instance> {
         let vk_library = VulkanLibrary::new().expect("Vulkan unavailable");
         println!(
@@ -227,8 +253,8 @@ impl VulkanRenderer {
         (
             vk_dev,
             QueueFamilies {
-                graphics_queue,
-                presentation_queue,
+                graphics_queue: graphics_queue.clone(),
+                presentation_queue: graphics_queue,
             },
         )
     }
@@ -363,6 +389,16 @@ impl VulkanRenderer {
             ..Default::default()
         };
 
+        let subpass_dependency = SubpassDependency {
+            src_subpass: None,
+            dst_subpass: Some(0),
+            src_stages: PipelineStages::COLOR_ATTACHMENT_OUTPUT,
+            src_access: AccessFlags::empty(),
+            dst_stages: PipelineStages::COLOR_ATTACHMENT_OUTPUT,
+            dst_access: AccessFlags::COLOR_ATTACHMENT_WRITE,
+            ..Default::default()
+        };
+
         let color_attachment_ref = AttachmentReference {
             attachment: 0,
             layout: ImageLayout::ColorAttachmentOptimal,
@@ -377,6 +413,7 @@ impl VulkanRenderer {
         let render_pass_create_info = RenderPassCreateInfo {
             attachments: vec![color_attachment],
             subpasses: vec![subpass_desc],
+            dependencies: vec![subpass_dependency],
             ..Default::default()
         };
 
@@ -388,7 +425,7 @@ impl VulkanRenderer {
         render_pass: Arc<RenderPass>,
         image_extent: [u32; 2],
     ) -> (Arc<PipelineLayout>, Arc<GraphicsPipeline>) {
-        let shaders = Shaders::new(dev.clone(), "vert.spv", "frag.spv");
+        let shaders = Shaders::new(dev.clone(), "src/shaders/vert.spv", "src/shaders/frag.spv");
 
         let vert_entry_point: EntryPoint = shaders.vert_shader.single_entry_point().unwrap();
         let vert_stage_info = PipelineShaderStageCreateInfo::new(vert_entry_point);
