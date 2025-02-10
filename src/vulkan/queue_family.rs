@@ -7,7 +7,7 @@ use vulkano::{
 
 pub struct QueueFamilies {
     pub graphics_queue: Arc<Queue>,
-    pub presentation_queue: Arc<Queue>,
+    pub _presentation_queue: Arc<Queue>,
 }
 
 pub struct QueueFamilyIndices {

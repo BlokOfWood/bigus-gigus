@@ -1,7 +1,7 @@
 use std::{sync::Arc, vec};
 
 use vulkano::{
-    command_buffer::{pool::CommandPoolAlloc, PrimaryAutoCommandBuffer},
+    command_buffer::CommandBufferExecFuture,
     device::{
         physical::PhysicalDevice, Device, DeviceCreateInfo, DeviceExtensions, Features,
         QueueCreateInfo,
@@ -35,16 +35,14 @@ use vulkano::{
     },
     shader::EntryPoint,
     swapchain::{
-        acquire_next_image, CompositeAlpha, Surface, SurfaceCapabilities, SurfaceInfo, Swapchain,
-        SwapchainCreateInfo, SwapchainPresentInfo,
+        acquire_next_image, CompositeAlpha, PresentFuture, Surface, SurfaceCapabilities,
+        SurfaceInfo, Swapchain, SwapchainAcquireFuture, SwapchainCreateInfo, SwapchainPresentInfo,
     },
     sync::{
         self,
-        fence::{Fence, FenceCreateFlags, FenceCreateInfo},
-        semaphore::{Semaphore, SemaphoreCreateInfo},
+        future::{FenceSignalFuture, JoinFuture},
         AccessFlags, GpuFuture, PipelineStages, Sharing,
-    },
-    VulkanLibrary,
+    }, VulkanLibrary,
 };
 use winit::{
     event_loop::ActiveEventLoop, raw_window_handle_05::HasRawDisplayHandle, window::Window,
@@ -72,13 +70,24 @@ pub struct VulkanRenderer {
     image_extent: [u32; 2],
     image_views: Vec<Arc<ImageView>>,
     render_pass: Arc<RenderPass>,
-    pipeline_layout: Arc<PipelineLayout>,
+    _pipeline_layout: Arc<PipelineLayout>,
     graphics_pipeline: Arc<GraphicsPipeline>,
     frame_buffers: Vec<Arc<Framebuffer>>,
     command_pool: CommandPool,
-    image_available: Semaphore,
-    render_finished: Semaphore,
-    in_flight: Fence,
+    fences: Vec<
+        Option<
+            Arc<
+                FenceSignalFuture<
+                    PresentFuture<
+                        CommandBufferExecFuture<
+                            JoinFuture<Box<dyn GpuFuture>, SwapchainAcquireFuture>,
+                        >,
+                    >,
+                >,
+            >,
+        >,
+    >,
+    fence_idx: u32,
 }
 
 impl VulkanRenderer {
@@ -112,6 +121,7 @@ impl VulkanRenderer {
         let command_pool = CommandPool::new(dev.clone(), phys_dev.clone(), surface.clone());
 
         VulkanRenderer {
+            fences: vec![None; (&images).len()],
             inst,
             phys_dev,
             dev: dev.clone(),
@@ -123,25 +133,49 @@ impl VulkanRenderer {
             image_extent: extent,
             image_views,
             render_pass,
-            pipeline_layout,
+            _pipeline_layout: pipeline_layout,
             graphics_pipeline,
             frame_buffers,
             command_pool,
-            image_available: Semaphore::new(dev.clone(), SemaphoreCreateInfo::default()).unwrap(),
-            render_finished: Semaphore::new(dev.clone(), SemaphoreCreateInfo::default()).unwrap(),
-            in_flight: Fence::new(
-                dev.clone(),
-                FenceCreateInfo {
-                    flags: FenceCreateFlags::SIGNALED,
-                    ..Default::default()
-                },
-            )
-            .unwrap(),
+            fence_idx: 0,
         }
     }
 
-    pub fn draw_frame(&self) {
-        let (image_idx, is_optimal, image_future) =
+    pub fn recreate_swap_chain(&mut self, window: Arc<Window>) {
+        let surface = Surface::from_window(self.inst.clone(), window.clone())
+            .expect("Failed to create surface from window.");
+
+        self.surface = surface.clone();
+
+        let swap_extent = Self::choose_swap_extent(
+            self.phys_dev
+                .surface_capabilities(&surface, SurfaceInfo::default())
+                .unwrap(),
+            window.clone(),
+        );
+
+        let (swap_chain, images) = self
+            .swap_chain
+            .recreate(SwapchainCreateInfo {
+                image_extent: swap_extent,
+                ..self.swap_chain.create_info()
+            })
+            .expect("Failed to recreate swap chain on resize!");
+
+        self.swap_chain = swap_chain;
+        self.images = images;
+        self.image_extent = swap_extent;
+
+        self.image_views = VulkanRenderer::create_image_views(&self.images, self.image_format);
+
+        self.frame_buffers = VulkanRenderer::create_frame_buffers(self.render_pass.clone(), &self.image_views, self.image_extent);
+    }
+
+    pub fn draw_frame(&mut self) {
+        // Acquires an image from the swap chain to draw unto.
+        // The swap chain is basically a buffer of images, where one of them is being displayed while we draw unto the other one.
+        // Basically decouples presenting an image from drawing the image, so that we can sync with the monitor's refresh rate.
+        let (image_idx, _is_optimal, acquire_future) =
             acquire_next_image(self.swap_chain.clone(), None).unwrap();
 
         let command_buffer = self.command_pool.record_render_pass(
@@ -150,18 +184,32 @@ impl VulkanRenderer {
             self.graphics_pipeline.clone(),
             self.image_extent,
         );
-        sync::now(self.dev.clone())
-            .join(image_future)
-            .then_execute(self.queues.graphics_queue.clone(), command_buffer.clone())
+
+        if let Some(image_fence) = &self.fences[self.fence_idx as usize] {
+            image_fence.wait(None).unwrap();
+        }
+
+        let previous_future = match self.fences[image_idx as usize].clone() {
+            None => {
+                let mut now = sync::now(self.dev.clone());
+                now.cleanup_finished();
+                now.boxed()
+            }
+            Some(fence) => fence.boxed(),
+        };
+
+        let future = previous_future
+            .join(acquire_future)
+            .then_execute(self.queues.graphics_queue.clone(), command_buffer)
             .unwrap()
             .then_swapchain_present(
-                self.queues.presentation_queue.clone(),
+                self.queues.graphics_queue.clone(),
                 SwapchainPresentInfo::swapchain_image_index(self.swap_chain.clone(), image_idx),
             )
-            .then_signal_fence_and_flush()
-            .unwrap()
-            .wait(None)
-            .unwrap();
+            .then_signal_fence_and_flush();
+
+        self.fences[image_idx as usize] = Some(Arc::new(future.unwrap()));
+        self.fence_idx = image_idx;
     }
 
     fn create_vulkan_instance(event_loop: &impl HasRawDisplayHandle) -> Arc<Instance> {
@@ -253,8 +301,8 @@ impl VulkanRenderer {
         (
             vk_dev,
             QueueFamilies {
-                graphics_queue: graphics_queue.clone(),
-                presentation_queue: graphics_queue,
+                graphics_queue,
+                _presentation_queue: presentation_queue,
             },
         )
     }

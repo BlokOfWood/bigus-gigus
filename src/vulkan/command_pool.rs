@@ -3,17 +3,12 @@ use std::sync::Arc;
 use vulkano::{
     command_buffer::{
         allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
-        pool::{
-            CommandBufferAllocateInfo, CommandPoolAlloc, CommandPoolCreateFlags,
-            CommandPoolCreateInfo, CommandPoolResetFlags,
-        },
-        AutoCommandBufferBuilder, CommandBufferLevel, CommandBufferUsage, PrimaryAutoCommandBuffer,
-        PrimaryCommandBufferAbstract, RenderPassBeginInfo, SubpassBeginInfo, SubpassEndInfo,
+        AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
+        RenderPassBeginInfo, SubpassBeginInfo, SubpassEndInfo,
     },
     device::{physical::PhysicalDevice, Device},
     format::ClearValue,
     pipeline::{
-        self,
         graphics::viewport::{Scissor, Viewport},
         GraphicsPipeline,
     },
@@ -24,7 +19,6 @@ use vulkano::{
 use super::queue_family::QueueFamilyIndices;
 
 pub struct CommandPool {
-    command_pool: vulkano::command_buffer::pool::CommandPool,
     command_buffer_allocator: StandardCommandBufferAllocator,
     graph_family_index: u32,
 }
@@ -33,24 +27,13 @@ impl CommandPool {
     pub fn new(dev: Arc<Device>, phys_dev: Arc<PhysicalDevice>, surface: Arc<Surface>) -> Self {
         let queue_families = QueueFamilyIndices::find_queue_families(phys_dev, surface);
 
-        let command_pool_create_info = CommandPoolCreateInfo {
-            queue_family_index: queue_families.graphics_family.unwrap(),
-            flags: CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
-            ..Default::default()
-        };
-
         let command_buffer_allocator_info = StandardCommandBufferAllocatorCreateInfo {
-            primary_buffer_count: 1,
+            primary_buffer_count: 2,
             secondary_buffer_count: 0,
             ..Default::default()
         };
 
         CommandPool {
-            command_pool: vulkano::command_buffer::pool::CommandPool::new(
-                dev.clone(),
-                command_pool_create_info,
-            )
-            .unwrap(),
             command_buffer_allocator: StandardCommandBufferAllocator::new(
                 dev.clone(),
                 command_buffer_allocator_info,
@@ -66,12 +49,6 @@ impl CommandPool {
         pipeline: Arc<GraphicsPipeline>,
         extent: [u32; 2],
     ) -> Arc<PrimaryAutoCommandBuffer> {
-        unsafe {
-            self.command_pool
-                .reset(CommandPoolResetFlags::empty())
-                .unwrap()
-        };
-
         let mut command_builder = AutoCommandBufferBuilder::primary(
             &self.command_buffer_allocator,
             self.graph_family_index,
