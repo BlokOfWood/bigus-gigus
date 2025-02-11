@@ -42,7 +42,8 @@ use vulkano::{
         self,
         future::{FenceSignalFuture, JoinFuture},
         AccessFlags, GpuFuture, PipelineStages, Sharing,
-    }, VulkanLibrary,
+    },
+    Validated, VulkanError, VulkanLibrary,
 };
 use winit::{
     event_loop::ActiveEventLoop, raw_window_handle_05::HasRawDisplayHandle, window::Window,
@@ -168,15 +169,28 @@ impl VulkanRenderer {
 
         self.image_views = VulkanRenderer::create_image_views(&self.images, self.image_format);
 
-        self.frame_buffers = VulkanRenderer::create_frame_buffers(self.render_pass.clone(), &self.image_views, self.image_extent);
+        self.frame_buffers = VulkanRenderer::create_frame_buffers(
+            self.render_pass.clone(),
+            &self.image_views,
+            self.image_extent,
+        );
     }
 
     pub fn draw_frame(&mut self) {
         // Acquires an image from the swap chain to draw unto.
         // The swap chain is basically a buffer of images, where one of them is being displayed while we draw unto the other one.
         // Basically decouples presenting an image from drawing the image, so that we can sync with the monitor's refresh rate.
-        let (image_idx, _is_optimal, acquire_future) =
-            acquire_next_image(self.swap_chain.clone(), None).unwrap();
+        let (image_idx, _is_suboptimal, acquire_future) =
+            match acquire_next_image(self.swap_chain.clone(), None).map_err(Validated::unwrap) {
+                Ok(acquired_image_details) => acquired_image_details,
+                Err(VulkanError::OutOfDate) => {
+                    return;
+                }
+                Err(err) => {
+                    println!("Failed to acquire new image. Error: {}", err);
+                    return;
+                }
+            };
 
         let command_buffer = self.command_pool.record_render_pass(
             self.render_pass.clone(),
@@ -198,17 +212,35 @@ impl VulkanRenderer {
             Some(fence) => fence.boxed(),
         };
 
-        let future = previous_future
+        let command_execution_result = previous_future
             .join(acquire_future)
-            .then_execute(self.queues.graphics_queue.clone(), command_buffer)
-            .unwrap()
-            .then_swapchain_present(
-                self.queues.graphics_queue.clone(),
-                SwapchainPresentInfo::swapchain_image_index(self.swap_chain.clone(), image_idx),
-            )
-            .then_signal_fence_and_flush();
+            .then_execute(self.queues.graphics_queue.clone(), command_buffer);
 
-        self.fences[image_idx as usize] = Some(Arc::new(future.unwrap()));
+        let presentation_result = match command_execution_result {
+            Ok(future) => future
+                .then_swapchain_present(
+                    self.queues.graphics_queue.clone(),
+                    SwapchainPresentInfo::swapchain_image_index(self.swap_chain.clone(), image_idx),
+                )
+                .then_signal_fence_and_flush(),
+            Err(err) => {
+                print!("Failed to execute command buffer {}", err.to_string());
+                return;
+            }
+        };
+
+        let new_fence = match presentation_result.map_err(Validated::unwrap) {
+            Ok(new_fence) => new_fence,
+            Err(VulkanError::OutOfDate) => {
+                return;
+            }
+            Err(err) => {
+                println!("Failed to present image, Error: {}", err);
+                return;
+            }
+        };
+
+        self.fences[image_idx as usize] = Some(Arc::new(new_fence));
         self.fence_idx = image_idx;
     }
 

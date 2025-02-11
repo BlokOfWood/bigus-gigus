@@ -51,7 +51,11 @@ impl ApplicationHandler for App {
         let window_attributes = Window::default_attributes()
             .with_title("My balls")
             .with_resizable(true)
-            .with_inner_size(PhysicalSize::new(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT));
+            .with_min_inner_size(PhysicalSize::new(1, 1))
+            .with_inner_size(PhysicalSize::new(
+                DEFAULT_WINDOW_WIDTH,
+                DEFAULT_WINDOW_HEIGHT,
+            ));
 
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
         self.window = Some(window.clone());
@@ -72,12 +76,14 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 if let Some(vk_renderer) = &mut self.vk_renderer {
                     vk_renderer.draw_frame();
-                    /*println!("{}", 1f64 / (Instant::now() - self.last_frame).as_secs_f64());
-                    self.last_frame = Instant::now();*/
                 };
                 self.window.as_ref().unwrap().request_redraw();
             }
-            WindowEvent::Resized(_new_size) => {
+            WindowEvent::Resized(new_size) => {
+                if new_size.width == 0 || new_size.height == 0 {
+                    return;
+                }
+
                 if let Some(vk_renderer) = &mut self.vk_renderer {
                     vk_renderer.recreate_swap_chain(self.window.clone().unwrap());
                 };
