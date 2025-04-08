@@ -19,7 +19,7 @@ use vulkano::{
             suballocator, AllocationCreateInfo, DeviceLayout, GenericMemoryAllocator,
             GenericMemoryAllocatorCreateInfo, MemoryAllocator, MemoryTypeFilter,
         },
-        DeviceAlignment, DeviceMemory, MemoryPropertyFlags,
+        DeviceAlignment, DeviceMemory, MemoryPropertyFlags, MemoryType,
     },
     pipeline::{
         graphics::{
@@ -64,7 +64,7 @@ use super::{
     queue_family::QueueFamilies,
     shader::Shaders,
     swap_chain::SwapChainSupport,
-    vertex_buffer::{Vertex, VertexBuffer, VertexData, VERTICES},
+    vertex_buffer::{Vertex, VertexBuffer, VertexData, INDICES, VERTICES},
 };
 
 const ENGINE_NAME: &str = "Very cool engine";
@@ -84,6 +84,7 @@ pub struct VulkanRenderer {
     render_pass: Arc<RenderPass>,
     graphics_pipeline: Arc<GraphicsPipeline>,
     vertex_buffer: Arc<Buffer>,
+    index_buffer: Arc<Buffer>,
     frame_buffers: Vec<Arc<Framebuffer>>,
     command_pool: CommandPool,
     fences: Vec<
@@ -141,6 +142,13 @@ impl VulkanRenderer {
             memory_allocator.clone(),
         );
 
+        let index_buffer = Self::create_index_buffer(
+            dev.clone(),
+            queues.graphics_queue.clone(),
+            &command_pool,
+            memory_allocator.clone(),
+        );
+
         VulkanRenderer {
             fences: vec![None; (&images).len()],
             inst,
@@ -155,6 +163,7 @@ impl VulkanRenderer {
             image_views,
             render_pass,
             vertex_buffer,
+            index_buffer,
             graphics_pipeline,
             frame_buffers,
             command_pool,
@@ -218,6 +227,7 @@ impl VulkanRenderer {
             self.graphics_pipeline.clone(),
             self.image_extent,
             self.vertex_buffer.clone(),
+            self.index_buffer.clone(),
         );
 
         if let Some(image_fence) = &self.fences[self.fence_idx as usize] {
@@ -718,12 +728,77 @@ impl VulkanRenderer {
         now.cleanup_finished();
         let gpu_future = now.boxed();
 
-        gpu_future
+        let _ = gpu_future
             .then_execute(graphics_queue.clone(), command_buffer)
             .unwrap()
             .then_signal_fence_and_flush()
-            .unwrap();
+            .unwrap()
+            .wait(None);
 
         vertex_buffer
+    }
+
+    fn create_index_buffer(
+        dev: Arc<Device>,
+        graphics_queue: Arc<Queue>,
+        command_pool: &CommandPool,
+        allocator: Arc<dyn MemoryAllocator>,
+    ) -> Arc<Buffer> {
+        let staging_buffer = Buffer::from_data(
+            allocator.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_SRC,
+                sharing: Sharing::Exclusive,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter {
+                    required_flags: MemoryPropertyFlags::HOST_VISIBLE
+                        | MemoryPropertyFlags::HOST_COHERENT,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            INDICES
+        )
+        .unwrap();
+
+        let index_buffer = Buffer::new(
+            allocator,
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_DST | BufferUsage::INDEX_BUFFER,
+                sharing: Sharing::Exclusive,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter {
+                    required_flags: MemoryPropertyFlags::DEVICE_LOCAL,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            DeviceLayout::from_size_alignment(
+                12,
+                DeviceAlignment::MIN.into(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        let command_buffer = command_pool
+            .record_copy_pass(staging_buffer.into_bytes(), index_buffer.clone().into());
+
+        let mut now = sync::now(dev.clone());
+        now.cleanup_finished();
+        let gpu_future = now.boxed();
+
+        let _ = gpu_future
+            .then_execute(graphics_queue.clone(), command_buffer)
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap()
+            .wait(None);
+
+        index_buffer
     }
 }
