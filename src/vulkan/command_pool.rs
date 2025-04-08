@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
 use vulkano::{
+    buffer::{Buffer, Subbuffer},
     command_buffer::{
-        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
-        AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
-        RenderPassBeginInfo, SubpassBeginInfo, SubpassEndInfo,
+        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo}, AutoCommandBufferBuilder, BufferCopy, CommandBufferUsage, CopyBufferInfo, PrimaryAutoCommandBuffer, RenderPassBeginInfo, SubpassBeginInfo, SubpassEndInfo
     },
     device::{physical::PhysicalDevice, Device},
     format::ClearValue,
@@ -14,9 +13,10 @@ use vulkano::{
     },
     render_pass::{Framebuffer, RenderPass},
     swapchain::Surface,
+    DeviceSize,
 };
 
-use super::queue_family::QueueFamilyIndices;
+use super::{queue_family::QueueFamilyIndices, vertex_buffer::VertexData};
 
 pub struct CommandPool {
     command_buffer_allocator: StandardCommandBufferAllocator,
@@ -48,6 +48,7 @@ impl CommandPool {
         framebuffer: Arc<Framebuffer>,
         pipeline: Arc<GraphicsPipeline>,
         extent: [u32; 2],
+        vertex_buffer: Arc<Buffer>,
     ) -> Arc<PrimaryAutoCommandBuffer> {
         let mut command_builder = AutoCommandBufferBuilder::primary(
             &self.command_buffer_allocator,
@@ -74,6 +75,7 @@ impl CommandPool {
             .unwrap();
 
         command_builder.bind_pipeline_graphics(pipeline).unwrap();
+        let bind_vertex_buffer_result = command_builder.bind_vertex_buffers(0, Subbuffer::new(vertex_buffer.clone()));
 
         let viewport: Viewport = Viewport {
             offset: [0.0f32, 0.0f32],
@@ -94,8 +96,19 @@ impl CommandPool {
 
         command_builder.draw(3, 1, 0, 0).unwrap();
 
-        command_builder.end_render_pass(SubpassEndInfo::default()).unwrap();
+        command_builder
+            .end_render_pass(SubpassEndInfo::default())
+            .unwrap();
 
         command_builder.build().unwrap()
+    }
+
+    pub fn record_copy_pass(&self, src_buffer: Subbuffer<[u8]>, dst_buffer: Subbuffer<[u8]>) -> Arc<PrimaryAutoCommandBuffer> {
+        let mut transfer_command_buffer =
+            AutoCommandBufferBuilder::primary(&self.command_buffer_allocator, self.graph_family_index, CommandBufferUsage::OneTimeSubmit).unwrap();
+
+        transfer_command_buffer.copy_buffer(CopyBufferInfo::buffers(src_buffer, dst_buffer)).unwrap();
+
+        transfer_command_buffer.build().unwrap()
     }
 }

@@ -1,9 +1,10 @@
-use std::{sync::Arc, vec};
+use std::{num::NonZero, sync::Arc, vec};
 
 use vulkano::{
+    buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::CommandBufferExecFuture,
     device::{
-        physical::PhysicalDevice, Device, DeviceCreateInfo, DeviceExtensions, Features,
+        physical::PhysicalDevice, Device, DeviceCreateInfo, DeviceExtensions, Features, Queue,
         QueueCreateInfo,
     },
     format::Format,
@@ -13,6 +14,13 @@ use vulkano::{
         Image, ImageAspects, ImageLayout, ImageSubresourceRange, ImageUsage, SampleCount,
     },
     instance::{Instance, InstanceCreateInfo},
+    memory::{
+        allocator::{
+            suballocator, AllocationCreateInfo, DeviceLayout, GenericMemoryAllocator,
+            GenericMemoryAllocatorCreateInfo, MemoryAllocator, MemoryTypeFilter,
+        },
+        DeviceAlignment, DeviceMemory, MemoryPropertyFlags,
+    },
     pipeline::{
         graphics::{
             color_blend::{ColorBlendAttachmentState, ColorBlendState, ColorComponents},
@@ -52,8 +60,11 @@ use winit::{
 use crate::vulkan::queue_family::QueueFamilyIndices;
 
 use super::{
-    command_pool::CommandPool, queue_family::QueueFamilies, shader::Shaders,
+    command_pool::CommandPool,
+    queue_family::QueueFamilies,
+    shader::Shaders,
     swap_chain::SwapChainSupport,
+    vertex_buffer::{Vertex, VertexBuffer, VertexData, VERTICES},
 };
 
 const ENGINE_NAME: &str = "Very cool engine";
@@ -71,8 +82,8 @@ pub struct VulkanRenderer {
     image_extent: [u32; 2],
     image_views: Vec<Arc<ImageView>>,
     render_pass: Arc<RenderPass>,
-    _pipeline_layout: Arc<PipelineLayout>,
     graphics_pipeline: Arc<GraphicsPipeline>,
+    vertex_buffer: Arc<Buffer>,
     frame_buffers: Vec<Arc<Framebuffer>>,
     command_pool: CommandPool,
     fences: Vec<
@@ -121,6 +132,15 @@ impl VulkanRenderer {
 
         let command_pool = CommandPool::new(dev.clone(), phys_dev.clone(), surface.clone());
 
+        let memory_allocator = Arc::new(Self::create_memory_allocator(dev.clone()));
+
+        let vertex_buffer = Self::create_vertex_buffer(
+            dev.clone(),
+            queues.graphics_queue.clone(),
+            &command_pool,
+            memory_allocator.clone(),
+        );
+
         VulkanRenderer {
             fences: vec![None; (&images).len()],
             inst,
@@ -134,7 +154,7 @@ impl VulkanRenderer {
             image_extent: extent,
             image_views,
             render_pass,
-            _pipeline_layout: pipeline_layout,
+            vertex_buffer,
             graphics_pipeline,
             frame_buffers,
             command_pool,
@@ -197,6 +217,7 @@ impl VulkanRenderer {
             self.frame_buffers[image_idx as usize].clone(),
             self.graphics_pipeline.clone(),
             self.image_extent,
+            self.vertex_buffer.clone(),
         );
 
         if let Some(image_fence) = &self.fences[self.fence_idx as usize] {
@@ -512,7 +533,10 @@ impl VulkanRenderer {
         let frag_entry_point: EntryPoint = shaders.frag_shader.single_entry_point().unwrap();
         let frag_stage_info = PipelineShaderStageCreateInfo::new(frag_entry_point);
 
-        let vertex_input_state = VertexInputState::new();
+        let vertex_input_state = VertexInputState::new()
+            .binding(0, VertexBuffer::get_binding_description())
+            .attributes(VertexBuffer::get_attribute_descriptions());
+
         let input_assembly_state = InputAssemblyState {
             topology: PrimitiveTopology::TriangleList,
             primitive_restart_enable: false,
@@ -613,5 +637,93 @@ impl VulkanRenderer {
                 Framebuffer::new(render_pass.clone(), framebuffer_create_info).unwrap()
             })
             .collect()
+    }
+
+    fn create_memory_allocator(
+        device: Arc<Device>,
+    ) -> GenericMemoryAllocator<suballocator::FreeListAllocator> {
+        let max_alloc_size = device
+            .physical_device()
+            .properties()
+            .max_memory_allocation_size
+            .unwrap_or(0xFFFF);
+        let block_sizes: Vec<u64> = device
+            .physical_device()
+            .memory_properties()
+            .memory_types
+            .iter()
+            .map(|_| max_alloc_size)
+            .collect();
+
+        GenericMemoryAllocator::new(
+            device,
+            GenericMemoryAllocatorCreateInfo {
+                block_sizes: block_sizes.as_slice(),
+                ..Default::default()
+            },
+        )
+    }
+
+    fn create_vertex_buffer(
+        dev: Arc<Device>,
+        graphics_queue: Arc<Queue>,
+        command_pool: &CommandPool,
+        allocator: Arc<dyn MemoryAllocator>,
+    ) -> Arc<Buffer> {
+        let staging_buffer = Buffer::from_data(
+            allocator.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_SRC,
+                sharing: Sharing::Exclusive,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter {
+                    required_flags: MemoryPropertyFlags::HOST_VISIBLE
+                        | MemoryPropertyFlags::HOST_COHERENT,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            VertexData { vertices: VERTICES },
+        )
+        .unwrap();
+
+        let vertex_buffer = Buffer::new(
+            allocator,
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_DST | BufferUsage::VERTEX_BUFFER,
+                sharing: Sharing::Exclusive,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter {
+                    required_flags: MemoryPropertyFlags::DEVICE_LOCAL,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            DeviceLayout::from_size_alignment(
+                size_of::<VertexData>() as u64,
+                DeviceAlignment::MIN.into(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        let command_buffer = command_pool
+            .record_copy_pass(staging_buffer.into_bytes(), vertex_buffer.clone().into());
+
+        let mut now = sync::now(dev.clone());
+        now.cleanup_finished();
+        let gpu_future = now.boxed();
+
+        gpu_future
+            .then_execute(graphics_queue.clone(), command_buffer)
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap();
+
+        vertex_buffer
     }
 }
