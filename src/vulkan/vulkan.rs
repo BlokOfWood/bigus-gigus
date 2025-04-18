@@ -1,8 +1,12 @@
-use std::{num::NonZero, sync::Arc, vec};
+use std::{collections::BTreeMap, sync::Arc, time::Instant, vec};
 
 use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::CommandBufferExecFuture,
+    descriptor_set::layout::{
+        DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo,
+        DescriptorType,
+    },
     device::{
         physical::PhysicalDevice, Device, DeviceCreateInfo, DeviceExtensions, Features, Queue,
         QueueCreateInfo,
@@ -19,7 +23,7 @@ use vulkano::{
             suballocator, AllocationCreateInfo, DeviceLayout, GenericMemoryAllocator,
             GenericMemoryAllocatorCreateInfo, MemoryAllocator, MemoryTypeFilter,
         },
-        DeviceAlignment, DeviceMemory, MemoryPropertyFlags, MemoryType,
+        DeviceAlignment, DeviceMemory, MemoryAllocateInfo, MemoryMapInfo, MemoryPropertyFlags,
     },
     pipeline::{
         graphics::{
@@ -41,7 +45,7 @@ use vulkano::{
         Framebuffer, FramebufferCreateInfo, RenderPass, RenderPassCreateInfo, Subpass,
         SubpassDependency, SubpassDescription,
     },
-    shader::EntryPoint,
+    shader::{EntryPoint, ShaderStages},
     swapchain::{
         acquire_next_image, CompositeAlpha, PresentFuture, Surface, SurfaceCapabilities,
         SurfaceInfo, Swapchain, SwapchainAcquireFuture, SwapchainCreateInfo, SwapchainPresentInfo,
@@ -57,14 +61,10 @@ use winit::{
     event_loop::ActiveEventLoop, raw_window_handle_05::HasRawDisplayHandle, window::Window,
 };
 
-use crate::vulkan::queue_family::QueueFamilyIndices;
+use crate::{math::matrix::Matrix4, vulkan::queue_family::QueueFamilyIndices};
 
 use super::{
-    command_pool::CommandPool,
-    queue_family::QueueFamilies,
-    shader::Shaders,
-    swap_chain::SwapChainSupport,
-    vertex_buffer::{Vertex, VertexBuffer, VertexData, INDICES, VERTICES},
+    command_pool::CommandPool, queue_family::QueueFamilies, shader::Shaders, swap_chain::SwapChainSupport, ubo::UniformBufferObject, vertex_buffer::{Vertex, VertexBuffer, VertexData, INDICES, VERTICES}
 };
 
 const ENGINE_NAME: &str = "Very cool engine";
@@ -82,9 +82,11 @@ pub struct VulkanRenderer {
     image_extent: [u32; 2],
     image_views: Vec<Arc<ImageView>>,
     render_pass: Arc<RenderPass>,
+    descriptor_set_layout: Arc<DescriptorSetLayout>,
     graphics_pipeline: Arc<GraphicsPipeline>,
     vertex_buffer: Arc<Buffer>,
     index_buffer: Arc<Buffer>,
+    uniform_buffers: Vec<Subbuffer<UniformBufferObject>>,
     frame_buffers: Vec<Arc<Framebuffer>>,
     command_pool: CommandPool,
     fences: Vec<
@@ -101,6 +103,7 @@ pub struct VulkanRenderer {
         >,
     >,
     fence_idx: u32,
+    last_time: Instant,
 }
 
 impl VulkanRenderer {
@@ -126,8 +129,18 @@ impl VulkanRenderer {
         let image_views = Self::create_image_views(&images, format);
 
         let render_pass = Self::create_render_pass(dev.clone(), format);
-        let (pipeline_layout, graphics_pipeline) =
-            Self::create_graphics_pipeline(dev.clone(), render_pass.clone(), extent);
+
+        let descriptor_set_layout = match Self::create_descriptor_set_layout(dev.clone()) {
+            Ok(descriptor_set_layout) => descriptor_set_layout,
+            Err(err) => panic!("Failed to create descriptor set layout! Error: {}", err),
+        };
+
+        let (pipeline_layout, graphics_pipeline) = Self::create_graphics_pipeline(
+            dev.clone(),
+            render_pass.clone(),
+            extent,
+            vec![descriptor_set_layout.clone()],
+        );
 
         let frame_buffers = Self::create_frame_buffers(render_pass.clone(), &image_views, extent);
 
@@ -149,6 +162,8 @@ impl VulkanRenderer {
             memory_allocator.clone(),
         );
 
+        let uniform_buffers = Self::create_uniform_buffers((&images).len(), memory_allocator.clone()).unwrap(); 
+
         VulkanRenderer {
             fences: vec![None; (&images).len()],
             inst,
@@ -164,10 +179,13 @@ impl VulkanRenderer {
             render_pass,
             vertex_buffer,
             index_buffer,
+            descriptor_set_layout,
+            uniform_buffers,
             graphics_pipeline,
             frame_buffers,
             command_pool,
             fence_idx: 0,
+            last_time: Instant::now()
         }
     }
 
@@ -535,6 +553,7 @@ impl VulkanRenderer {
         dev: Arc<Device>,
         render_pass: Arc<RenderPass>,
         image_extent: [u32; 2],
+        descriptor_set_layouts: Vec<Arc<DescriptorSetLayout>>,
     ) -> (Arc<PipelineLayout>, Arc<GraphicsPipeline>) {
         let shaders = Shaders::new(dev.clone(), "src/shaders/vert.spv", "src/shaders/frag.spv");
 
@@ -598,6 +617,7 @@ impl VulkanRenderer {
         };
 
         let pipeline_layout_info = PipelineLayoutCreateInfo {
+            set_layouts: descriptor_set_layouts,
             ..Default::default()
         };
 
@@ -759,7 +779,7 @@ impl VulkanRenderer {
                 },
                 ..Default::default()
             },
-            INDICES
+            INDICES,
         )
         .unwrap();
 
@@ -777,16 +797,12 @@ impl VulkanRenderer {
                 },
                 ..Default::default()
             },
-            DeviceLayout::from_size_alignment(
-                12,
-                DeviceAlignment::MIN.into(),
-            )
-            .unwrap(),
+            DeviceLayout::from_size_alignment(12, DeviceAlignment::MIN.into()).unwrap(),
         )
         .unwrap();
 
-        let command_buffer = command_pool
-            .record_copy_pass(staging_buffer.into_bytes(), index_buffer.clone().into());
+        let command_buffer =
+            command_pool.record_copy_pass(staging_buffer.into_bytes(), index_buffer.clone().into());
 
         let mut now = sync::now(dev.clone());
         now.cleanup_finished();
@@ -800,5 +816,62 @@ impl VulkanRenderer {
             .wait(None);
 
         index_buffer
+    }
+
+    fn create_descriptor_set_layout(
+        device: Arc<Device>,
+    ) -> Result<Arc<DescriptorSetLayout>, Validated<vulkano::VulkanError>> {
+        let ubo_layout_binding = DescriptorSetLayoutBinding {
+            stages: ShaderStages::VERTEX,
+            ..DescriptorSetLayoutBinding::descriptor_type(DescriptorType::UniformBuffer)
+        };
+
+        let layout_create_info = DescriptorSetLayoutCreateInfo {
+            bindings: BTreeMap::from([(0, ubo_layout_binding)]),
+            ..Default::default()
+        };
+
+        return DescriptorSetLayout::new(device, layout_create_info);
+    }
+
+    fn create_uniform_buffers(
+        max_frames_in_flight: usize,
+        allocator: Arc<dyn MemoryAllocator>,
+    ) -> Result<Vec<Subbuffer<UniformBufferObject>>, Validated<VulkanError>> {
+        let mut uniform_buffers: Vec<Subbuffer<UniformBufferObject>> = Vec::with_capacity(max_frames_in_flight);
+
+        // TODO: convert to persistent mapping
+        for _ in 0..max_frames_in_flight {
+            let uniform_buffer = Buffer::new_sized::<UniformBufferObject>(
+                allocator.clone(),
+                BufferCreateInfo {
+                    usage: BufferUsage::UNIFORM_BUFFER,
+                    sharing: Sharing::Exclusive,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    memory_type_filter: MemoryTypeFilter {
+                        required_flags: MemoryPropertyFlags::HOST_VISIBLE
+                            | MemoryPropertyFlags::HOST_COHERENT,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+            uniform_buffers.push(uniform_buffer.clone()); 
+        };
+
+        return  Ok(uniform_buffers);
+    }
+
+    fn update_uniform_buffer(&mut self, image_index: usize) {
+        let current_time = Instant::now();
+        let elapsed_time = current_time - self.last_time;
+        self.last_time = current_time;
+
+        let mut uniform_buffer = self.uniform_buffers[image_index].write().unwrap();
+        uniform_buffer.model = Matrix4::new();
     }
 }

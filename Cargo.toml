@@ -6,5 +6,4 @@ edition = "2021"
 [dependencies]
 vulkano = { version = "*" }
 winit = { version = "*", features = ["rwh_05"] }
-nalgebra = "*"
 ahash = "*"
