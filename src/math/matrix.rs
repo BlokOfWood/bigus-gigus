@@ -5,7 +5,7 @@ use vulkano::buffer::BufferContents;
 #[repr(C)]
 #[derive(BufferContents)]
 pub struct Matrix<const N: usize, const M: usize> {
-    contents: [[f32; N]; M],
+    pub contents: [[f32; N]; M],
 }
 
 impl<const N: usize, const M: usize> Matrix<N, M> {
@@ -13,6 +13,12 @@ impl<const N: usize, const M: usize> Matrix<N, M> {
         return Matrix {
             contents: [[0.0; N]; M],
         };
+    }
+}
+
+impl<const N: usize, const M: usize> From<[[f32; N];M]> for Matrix<N,M> {
+    fn from(value: [[f32; N];M]) -> Self {
+        Matrix { contents: value }
     }
 }
 

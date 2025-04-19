@@ -61,10 +61,22 @@ use winit::{
     event_loop::ActiveEventLoop, raw_window_handle_05::HasRawDisplayHandle, window::Window,
 };
 
-use crate::{math::matrix::Matrix4, vulkan::queue_family::QueueFamilyIndices};
+use crate::{
+    math::{
+        matrix::Matrix4,
+        quaternion::Quaternion,
+        vector::{Vector3, VECTOR3_ZERO},
+    },
+    vulkan::queue_family::QueueFamilyIndices,
+};
 
 use super::{
-    command_pool::CommandPool, queue_family::QueueFamilies, shader::Shaders, swap_chain::SwapChainSupport, ubo::UniformBufferObject, vertex_buffer::{Vertex, VertexBuffer, VertexData, INDICES, VERTICES}
+    command_pool::CommandPool,
+    queue_family::QueueFamilies,
+    shader::Shaders,
+    swap_chain::SwapChainSupport,
+    ubo::UniformBufferObject,
+    vertex_buffer::{Vertex, VertexBuffer, VertexData, INDICES, VERTICES},
 };
 
 const ENGINE_NAME: &str = "Very cool engine";
@@ -103,7 +115,7 @@ pub struct VulkanRenderer {
         >,
     >,
     fence_idx: u32,
-    last_time: Instant,
+    start_time: Instant,
 }
 
 impl VulkanRenderer {
@@ -162,7 +174,8 @@ impl VulkanRenderer {
             memory_allocator.clone(),
         );
 
-        let uniform_buffers = Self::create_uniform_buffers((&images).len(), memory_allocator.clone()).unwrap(); 
+        let uniform_buffers =
+            Self::create_uniform_buffers((&images).len(), memory_allocator.clone()).unwrap();
 
         VulkanRenderer {
             fences: vec![None; (&images).len()],
@@ -185,7 +198,7 @@ impl VulkanRenderer {
             frame_buffers,
             command_pool,
             fence_idx: 0,
-            last_time: Instant::now()
+            start_time: Instant::now(),
         }
     }
 
@@ -838,7 +851,8 @@ impl VulkanRenderer {
         max_frames_in_flight: usize,
         allocator: Arc<dyn MemoryAllocator>,
     ) -> Result<Vec<Subbuffer<UniformBufferObject>>, Validated<VulkanError>> {
-        let mut uniform_buffers: Vec<Subbuffer<UniformBufferObject>> = Vec::with_capacity(max_frames_in_flight);
+        let mut uniform_buffers: Vec<Subbuffer<UniformBufferObject>> =
+            Vec::with_capacity(max_frames_in_flight);
 
         // TODO: convert to persistent mapping
         for _ in 0..max_frames_in_flight {
@@ -860,18 +874,17 @@ impl VulkanRenderer {
             )
             .unwrap();
 
-            uniform_buffers.push(uniform_buffer.clone()); 
-        };
+            uniform_buffers.push(uniform_buffer.clone());
+        }
 
-        return  Ok(uniform_buffers);
+        return Ok(uniform_buffers);
     }
 
     fn update_uniform_buffer(&mut self, image_index: usize) {
         let current_time = Instant::now();
-        let elapsed_time = current_time - self.last_time;
-        self.last_time = current_time;
+        let elapsed_time = current_time - self.start_time;
 
         let mut uniform_buffer = self.uniform_buffers[image_index].write().unwrap();
-        uniform_buffer.model = Matrix4::new();
+        uniform_buffer.model = Quaternion::new(VECTOR3_ZERO, elapsed_time.as_secs_f32()).into();
     }
 }
