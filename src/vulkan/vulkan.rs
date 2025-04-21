@@ -885,6 +885,9 @@ impl VulkanRenderer {
         let elapsed_time = current_time - self.start_time;
 
         let mut uniform_buffer = self.uniform_buffers[image_index].write().unwrap();
-        uniform_buffer.model = Quaternion::new(VECTOR3_ZERO, elapsed_time.as_secs_f32()).into();
+        uniform_buffer.model = Quaternion::new(Vector3::new(0.0, 1.0, 0.0), elapsed_time.as_secs_f32()).into_rotation_matrix();
+        
+
+
     }
 }

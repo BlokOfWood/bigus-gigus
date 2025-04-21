@@ -18,10 +18,8 @@ impl Quaternion {
             w: (rotation_angle / 2.0).cos(),
         }
     }
-}
 
-impl Into<Matrix4> for Quaternion {
-    fn into(self) -> Matrix4 {
+    pub fn into_rotation_matrix(self) -> Matrix4 {
         let x = self.x;
         let x_2 = x * x;
 
@@ -36,19 +34,19 @@ impl Into<Matrix4> for Quaternion {
         [
             [
                 1.0 - 2.0 * y_2 - 2.0 * z_2,
-                2.0 * x * y - 2.0 * w * z,
-                2.0 * x * z + 2.0 * w * y,
-                0.0,
-            ],
-            [
                 2.0 * x * y + 2.0 * w * z,
-                1.0 - 2.0 * x_2 - 2.0 * z_2,
-                2.0 * y * z - 2.0 * w * x,
+                2.0 * x * z - 2.0 * w * y,
                 0.0,
             ],
             [
-                2.0 * x * z - 2.0 * w * y,
+                2.0 * x * y - 2.0 * w * z,
+                1.0 - 2.0 * x_2 - 2.0 * z_2,
                 2.0 * y * z + 2.0 * w * x,
+                0.0,
+            ],
+            [
+                2.0 * x * z + 2.0 * w * y,
+                2.0 * y * z - 2.0 * w * x,
                 1.0 - 2.0 * x_2 - 2.0 * y_2,
                 0.0,
             ],
