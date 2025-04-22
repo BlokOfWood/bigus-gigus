@@ -1,11 +1,15 @@
-use std::{collections::BTreeMap, sync::Arc, time::Instant, vec};
+use std::{collections::BTreeMap, mem, num::NonZero, slice, sync::Arc, time::Instant, vec};
 
 use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::CommandBufferExecFuture,
-    descriptor_set::layout::{
-        DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo,
-        DescriptorType,
+    descriptor_set::{
+        allocator::StandardDescriptorSetAllocator,
+        layout::{
+            DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo,
+            DescriptorType,
+        },
+        PersistentDescriptorSet, WriteDescriptorSet,
     },
     device::{
         physical::PhysicalDevice, Device, DeviceCreateInfo, DeviceExtensions, Features, Queue,
@@ -23,7 +27,7 @@ use vulkano::{
             suballocator, AllocationCreateInfo, DeviceLayout, GenericMemoryAllocator,
             GenericMemoryAllocatorCreateInfo, MemoryAllocator, MemoryTypeFilter,
         },
-        DeviceAlignment, DeviceMemory, MemoryAllocateInfo, MemoryMapInfo, MemoryPropertyFlags,
+        DeviceAlignment, MemoryPropertyFlags,
     },
     pipeline::{
         graphics::{
@@ -63,7 +67,7 @@ use winit::{
 
 use crate::{
     math::{
-        matrix::Matrix4,
+        graphics_ops::{look_at, perspective},
         quaternion::Quaternion,
         vector::{Vector3, VECTOR3_ZERO},
     },
@@ -95,10 +99,12 @@ pub struct VulkanRenderer {
     image_views: Vec<Arc<ImageView>>,
     render_pass: Arc<RenderPass>,
     descriptor_set_layout: Arc<DescriptorSetLayout>,
+
     graphics_pipeline: Arc<GraphicsPipeline>,
     vertex_buffer: Arc<Buffer>,
     index_buffer: Arc<Buffer>,
     uniform_buffers: Vec<Subbuffer<UniformBufferObject>>,
+    descriptor_sets: Vec<Arc<PersistentDescriptorSet>>,
     frame_buffers: Vec<Arc<Framebuffer>>,
     command_pool: CommandPool,
     fences: Vec<
@@ -176,6 +182,11 @@ impl VulkanRenderer {
 
         let uniform_buffers =
             Self::create_uniform_buffers((&images).len(), memory_allocator.clone()).unwrap();
+        let descriptor_sets = Self::create_descriptor_sets(
+            descriptor_set_layout.clone(),
+            &uniform_buffers,
+            dev.clone(),
+        );
 
         VulkanRenderer {
             fences: vec![None; (&images).len()],
@@ -193,6 +204,7 @@ impl VulkanRenderer {
             vertex_buffer,
             index_buffer,
             descriptor_set_layout,
+            descriptor_sets,
             uniform_buffers,
             graphics_pipeline,
             frame_buffers,
@@ -252,10 +264,13 @@ impl VulkanRenderer {
                 }
             };
 
+        self.update_uniform_buffer(image_idx.try_into().unwrap(), (self.image_extent[0] / self.image_extent[1]) as f32);
+
         let command_buffer = self.command_pool.record_render_pass(
             self.render_pass.clone(),
             self.frame_buffers[image_idx as usize].clone(),
             self.graphics_pipeline.clone(),
+            self.descriptor_sets[image_idx as usize].clone(),
             self.image_extent,
             self.vertex_buffer.clone(),
             self.index_buffer.clone(),
@@ -568,7 +583,7 @@ impl VulkanRenderer {
         image_extent: [u32; 2],
         descriptor_set_layouts: Vec<Arc<DescriptorSetLayout>>,
     ) -> (Arc<PipelineLayout>, Arc<GraphicsPipeline>) {
-        let shaders = Shaders::new(dev.clone(), "src/shaders/vert.spv", "src/shaders/frag.spv");
+        let shaders = Shaders::new(dev.clone(), "B:/vert.spv", "B:/frag.spv");
 
         let vert_entry_point: EntryPoint = shaders.vert_shader.single_entry_point().unwrap();
         let vert_stage_info = PipelineShaderStageCreateInfo::new(vert_entry_point);
@@ -605,7 +620,7 @@ impl VulkanRenderer {
             polygon_mode: PolygonMode::Fill,
             line_width: 1.0f32,
             cull_mode: CullMode::Back,
-            front_face: FrontFace::Clockwise,
+            front_face: FrontFace::CounterClockwise,
             depth_bias: None,
             ..Default::default()
         };
@@ -689,13 +704,13 @@ impl VulkanRenderer {
             .physical_device()
             .properties()
             .max_memory_allocation_size
-            .unwrap_or(0xFFFF);
+            .unwrap_or(0xFF);
         let block_sizes: Vec<u64> = device
             .physical_device()
             .memory_properties()
             .memory_types
             .iter()
-            .map(|_| max_alloc_size)
+            .map(|_| 0xFF)
             .collect();
 
         GenericMemoryAllocator::new(
@@ -728,7 +743,9 @@ impl VulkanRenderer {
                 },
                 ..Default::default()
             },
-            VertexData { vertices: VERTICES },
+            VertexData {
+                vertices: VERTICES
+            }
         )
         .unwrap();
 
@@ -747,15 +764,15 @@ impl VulkanRenderer {
                 ..Default::default()
             },
             DeviceLayout::from_size_alignment(
-                size_of::<VertexData>() as u64,
+                (size_of::<VertexData>()) as u64,
                 DeviceAlignment::MIN.into(),
             )
             .unwrap(),
         )
         .unwrap();
 
-        let command_buffer = command_pool
-            .record_copy_pass(staging_buffer.into_bytes(), vertex_buffer.clone().into());
+        let command_buffer =
+            command_pool.record_copy_pass(staging_buffer.into_bytes(), vertex_buffer.clone().into());
 
         let mut now = sync::now(dev.clone());
         now.cleanup_finished();
@@ -880,14 +897,39 @@ impl VulkanRenderer {
         return Ok(uniform_buffers);
     }
 
-    fn update_uniform_buffer(&mut self, image_index: usize) {
+    fn create_descriptor_sets(
+        layout: Arc<DescriptorSetLayout>,
+        uniform_buffers: &[Subbuffer<UniformBufferObject>], // Pass in the buffersr_sets(
+        device: Arc<Device>,
+    ) -> Vec<Arc<PersistentDescriptorSet>> {
+        let descriptor_set_allocator =
+            StandardDescriptorSetAllocator::new(device.clone(), Default::default());
+        let num_sets = uniform_buffers.len();
+        let mut descriptor_sets: Vec<Arc<PersistentDescriptorSet>> = Vec::with_capacity(num_sets);
+
+        for i in 0..num_sets {
+            let set = PersistentDescriptorSet::new(
+                &descriptor_set_allocator,
+                layout.clone(),
+                [WriteDescriptorSet::buffer(0, uniform_buffers[i].clone())], // Write the UBO binding
+                [],                                                          // No images
+            )
+            .unwrap(); // Handle potential errors
+            descriptor_sets.push(set);
+        }
+
+        descriptor_sets
+    }
+
+    fn update_uniform_buffer(&mut self, image_index: usize, aspect_ratio: f32) {
         let current_time = Instant::now();
         let elapsed_time = current_time - self.start_time;
 
         let mut uniform_buffer = self.uniform_buffers[image_index].write().unwrap();
-        uniform_buffer.model = Quaternion::new(Vector3::new(0.0, 1.0, 0.0), elapsed_time.as_secs_f32()).into_rotation_matrix();
-        
-
-
+        uniform_buffer.model =
+            Quaternion::new(Vector3::new(0.0, 1.0, 0.0), elapsed_time.as_secs_f32())
+                .into_rotation_matrix();
+        uniform_buffer.view = look_at(VECTOR3_ZERO, Vector3::new(0.0, 2.0, 0.0));
+        uniform_buffer.proj = perspective(80.0, aspect_ratio, 1.0, 100.0);
     }
 }

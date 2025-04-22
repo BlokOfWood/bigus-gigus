@@ -1,26 +1,18 @@
 use std::sync::Arc;
 
 use vulkano::{
-    buffer::{Buffer, IndexBuffer, Subbuffer},
-    command_buffer::{
+    buffer::{Buffer, IndexBuffer, Subbuffer}, command_buffer::{
         allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
-        AutoCommandBufferBuilder, BufferCopy, CommandBufferUsage, CopyBufferInfo,
+        AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo,
         PrimaryAutoCommandBuffer, RenderPassBeginInfo, SubpassBeginInfo, SubpassEndInfo,
-    },
-    device::{physical::PhysicalDevice, Device},
-    format::ClearValue,
-    pipeline::{
-        graphics::viewport::{Scissor, Viewport},
-        GraphicsPipeline,
-    },
-    render_pass::{Framebuffer, RenderPass},
-    swapchain::Surface,
-    DeviceSize,
+    }, descriptor_set::PersistentDescriptorSet, device::{physical::PhysicalDevice, Device}, format::ClearValue, pipeline::{
+        graphics::viewport::{Scissor, Viewport}, GraphicsPipeline, Pipeline, PipelineBindPoint
+    }, render_pass::{Framebuffer, RenderPass}, swapchain::Surface
 };
 
 use super::{
     queue_family::QueueFamilyIndices,
-    vertex_buffer::{VertexData, INDICES},
+    vertex_buffer::INDICES,
 };
 
 pub struct CommandPool {
@@ -52,6 +44,7 @@ impl CommandPool {
         render_pass: Arc<RenderPass>,
         framebuffer: Arc<Framebuffer>,
         pipeline: Arc<GraphicsPipeline>,
+        descriptor_set: Arc<PersistentDescriptorSet>,
         extent: [u32; 2],
         vertex_buffer: Arc<Buffer>,
         index_buffer: Arc<Buffer>,
@@ -80,7 +73,7 @@ impl CommandPool {
             )
             .unwrap();
 
-        command_builder.bind_pipeline_graphics(pipeline).unwrap();
+        command_builder.bind_pipeline_graphics(pipeline.clone()).unwrap();
         command_builder
             .bind_vertex_buffers(0, Subbuffer::new(vertex_buffer.clone()))
             .unwrap();
@@ -107,6 +100,8 @@ impl CommandPool {
         command_builder
             .set_scissor(0, vec![scissor].into())
             .unwrap();
+
+        command_builder.bind_descriptor_sets(PipelineBindPoint::Graphics, pipeline.layout().clone(), 0, descriptor_set).unwrap();
 
         command_builder
             .draw_indexed(INDICES.len() as u32, 1, 0, 0, 0)

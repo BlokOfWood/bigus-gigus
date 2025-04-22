@@ -7,3 +7,10 @@ edition = "2021"
 vulkano = { version = "*" }
 winit = { version = "*", features = ["rwh_05"] }
 ahash = "*"
+dhat = "*"
+
+[profile.release]
+debug = 1
+
+[features]
+dhat-heap = []    # if you are doing heap profiling

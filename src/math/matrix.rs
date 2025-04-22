@@ -5,8 +5,6 @@ use std::{
 
 use vulkano::buffer::BufferContents;
 
-use super::vector::Vector3;
-
 #[repr(C)]
 #[derive(BufferContents, Debug)]
 pub struct Matrix<const ROWS: usize, const COLS: usize> {
