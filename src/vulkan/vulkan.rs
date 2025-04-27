@@ -68,6 +68,7 @@ use winit::{
 use crate::{
     math::{
         graphics_ops::{look_at, perspective},
+        matrix::Matrix4,
         quaternion::Quaternion,
         vector::{Vector3, VECTOR3_ZERO},
     },
@@ -264,7 +265,14 @@ impl VulkanRenderer {
                 }
             };
 
-        self.update_uniform_buffer(image_idx.try_into().unwrap(), (self.image_extent[0] / self.image_extent[1]) as f32);
+        if let Some(image_fence) = &self.fences[image_idx as usize] {
+            image_fence.wait(None).unwrap();
+        }
+
+        self.update_uniform_buffer(
+            image_idx.try_into().unwrap(),
+            (self.image_extent[0] / self.image_extent[1]) as f32,
+        );
 
         let command_buffer = self.command_pool.record_render_pass(
             self.render_pass.clone(),
@@ -275,10 +283,6 @@ impl VulkanRenderer {
             self.vertex_buffer.clone(),
             self.index_buffer.clone(),
         );
-
-        if let Some(image_fence) = &self.fences[self.fence_idx as usize] {
-            image_fence.wait(None).unwrap();
-        }
 
         let previous_future = match self.fences[image_idx as usize].clone() {
             None => {
@@ -583,7 +587,7 @@ impl VulkanRenderer {
         image_extent: [u32; 2],
         descriptor_set_layouts: Vec<Arc<DescriptorSetLayout>>,
     ) -> (Arc<PipelineLayout>, Arc<GraphicsPipeline>) {
-        let shaders = Shaders::new(dev.clone(), "B:/vert.spv", "B:/frag.spv");
+        let shaders = Shaders::new(dev.clone(), "src/shaders/vert.spv", "src/shaders/frag.spv");
 
         let vert_entry_point: EntryPoint = shaders.vert_shader.single_entry_point().unwrap();
         let vert_stage_info = PipelineShaderStageCreateInfo::new(vert_entry_point);
@@ -743,9 +747,7 @@ impl VulkanRenderer {
                 },
                 ..Default::default()
             },
-            VertexData {
-                vertices: VERTICES
-            }
+            VertexData { vertices: VERTICES },
         )
         .unwrap();
 
@@ -771,8 +773,8 @@ impl VulkanRenderer {
         )
         .unwrap();
 
-        let command_buffer =
-            command_pool.record_copy_pass(staging_buffer.into_bytes(), vertex_buffer.clone().into());
+        let command_buffer = command_pool
+            .record_copy_pass(staging_buffer.into_bytes(), vertex_buffer.clone().into());
 
         let mut now = sync::now(dev.clone());
         now.cleanup_finished();
@@ -911,8 +913,8 @@ impl VulkanRenderer {
             let set = PersistentDescriptorSet::new(
                 &descriptor_set_allocator,
                 layout.clone(),
-                [WriteDescriptorSet::buffer(0, uniform_buffers[i].clone())], // Write the UBO binding
-                [],                                                          // No images
+                [WriteDescriptorSet::buffer(0, uniform_buffers[i].clone())],
+                [],
             )
             .unwrap(); // Handle potential errors
             descriptor_sets.push(set);
@@ -922,14 +924,15 @@ impl VulkanRenderer {
     }
 
     fn update_uniform_buffer(&mut self, image_index: usize, aspect_ratio: f32) {
-        let current_time = Instant::now();
-        let elapsed_time = current_time - self.start_time;
+        let elapsed_time = self.start_time.elapsed();
 
         let mut uniform_buffer = self.uniform_buffers[image_index].write().unwrap();
+
         uniform_buffer.model =
-            Quaternion::new(Vector3::new(0.0, 1.0, 0.0), elapsed_time.as_secs_f32())
+            Quaternion::new(Vector3::new(0.0, 0.0, 1.0), elapsed_time.as_secs_f32())
                 .into_rotation_matrix();
-        uniform_buffer.view = look_at(VECTOR3_ZERO, Vector3::new(0.0, 2.0, 0.0));
-        uniform_buffer.proj = perspective(80.0, aspect_ratio, 1.0, 100.0);
+
+        uniform_buffer.view = look_at(VECTOR3_ZERO, Vector3::new(0.0, elapsed_time.as_secs_f32().sin() * 5.0, 2.0));
+        uniform_buffer.proj = perspective(60.0, aspect_ratio, 0.1, 100.0);
     }
 }
