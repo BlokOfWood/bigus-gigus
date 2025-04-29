@@ -49,7 +49,7 @@ impl App {
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attributes = Window::default_attributes()
-            .with_title("My balls")
+            .with_title("Bigus Gigus")
             .with_resizable(true)
             .with_min_inner_size(PhysicalSize::new(1, 1))
             .with_inner_size(PhysicalSize::new(

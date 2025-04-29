@@ -1,8 +1,8 @@
-use std::{collections::BTreeMap, mem, num::NonZero, slice, sync::Arc, time::Instant, vec};
+use std::{collections::BTreeMap, sync::Arc, time::Instant};
 
 use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
-    command_buffer::CommandBufferExecFuture,
+    command_buffer::{allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferExecFuture, PrimaryAutoCommandBuffer},
     descriptor_set::{
         allocator::StandardDescriptorSetAllocator,
         layout::{
@@ -12,14 +12,14 @@ use vulkano::{
         PersistentDescriptorSet, WriteDescriptorSet,
     },
     device::{
-        physical::PhysicalDevice, Device, DeviceCreateInfo, DeviceExtensions, Features, Queue,
-        QueueCreateInfo,
+        physical::PhysicalDevice, Device, DeviceCreateInfo, DeviceExtensions, DeviceOwned, Features, Queue, QueueCreateInfo
     },
     format::Format,
     image::{
         sampler::ComponentMapping,
         view::{ImageView, ImageViewCreateInfo, ImageViewType},
-        Image, ImageAspects, ImageLayout, ImageSubresourceRange, ImageUsage, SampleCount,
+        Image, ImageAspects, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling,
+        ImageType, ImageUsage, SampleCount,
     },
     instance::{Instance, InstanceCreateInfo},
     memory::{
@@ -55,9 +55,7 @@ use vulkano::{
         SurfaceInfo, Swapchain, SwapchainAcquireFuture, SwapchainCreateInfo, SwapchainPresentInfo,
     },
     sync::{
-        self,
-        future::{FenceSignalFuture, JoinFuture},
-        AccessFlags, GpuFuture, PipelineStages, Sharing,
+        self, future::{FenceSignalFuture, JoinFuture}, AccessFlags, GpuFuture, ImageMemoryBarrier, PipelineStages, Sharing
     },
     Validated, VulkanError, VulkanLibrary,
 };
@@ -69,7 +67,6 @@ use crate::{
     math::{
         graphics_ops::{look_at, perspective},
         matrix::Matrix4,
-        quaternion::Quaternion,
         vector::{Vector3, VECTOR3_ZERO},
     },
     vulkan::queue_family::QueueFamilyIndices,
@@ -81,7 +78,7 @@ use super::{
     shader::Shaders,
     swap_chain::SwapChainSupport,
     ubo::UniformBufferObject,
-    vertex_buffer::{Vertex, VertexBuffer, VertexData, INDICES, VERTICES},
+    vertex_buffer::{VertexBuffer, VertexData, INDICES, VERTICES},
 };
 
 const ENGINE_NAME: &str = "Very cool engine";
@@ -165,29 +162,31 @@ impl VulkanRenderer {
 
         let command_pool = CommandPool::new(dev.clone(), phys_dev.clone(), surface.clone());
 
-        let memory_allocator = Arc::new(Self::create_memory_allocator(dev.clone()));
+        let allocator = Arc::new(Self::create_memory_allocator(dev.clone()));
 
         let vertex_buffer = Self::create_vertex_buffer(
             dev.clone(),
             queues.graphics_queue.clone(),
             &command_pool,
-            memory_allocator.clone(),
+            allocator.clone(),
         );
 
         let index_buffer = Self::create_index_buffer(
             dev.clone(),
             queues.graphics_queue.clone(),
             &command_pool,
-            memory_allocator.clone(),
+            allocator.clone(),
         );
 
         let uniform_buffers =
-            Self::create_uniform_buffers((&images).len(), memory_allocator.clone()).unwrap();
+            Self::create_uniform_buffers((&images).len(), allocator.clone()).unwrap();
         let descriptor_sets = Self::create_descriptor_sets(
             descriptor_set_layout.clone(),
             &uniform_buffers,
             dev.clone(),
         );
+
+        let image = Self::create_texture_image(allocator.clone());
 
         VulkanRenderer {
             fences: vec![None; (&images).len()],
@@ -704,11 +703,6 @@ impl VulkanRenderer {
     fn create_memory_allocator(
         device: Arc<Device>,
     ) -> GenericMemoryAllocator<suballocator::FreeListAllocator> {
-        let max_alloc_size = device
-            .physical_device()
-            .properties()
-            .max_memory_allocation_size
-            .unwrap_or(0xFF);
         let block_sizes: Vec<u64> = device
             .physical_device()
             .memory_properties()
@@ -724,6 +718,59 @@ impl VulkanRenderer {
                 ..Default::default()
             },
         )
+    }
+
+    fn create_texture_image(allocator: Arc<dyn MemoryAllocator>) -> Arc<Image> {
+        let open_image = image::open("assets/textures/statue.jpg").unwrap();
+
+        let image_extent = [open_image.width(), open_image.height(), 1];
+
+        let image_data = open_image.to_rgba8();
+
+        let staging_buffer: Subbuffer<[u8]> = Buffer::from_iter(
+            allocator.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_SRC,
+                sharing: Sharing::Exclusive,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter {
+                    required_flags: MemoryPropertyFlags::HOST_VISIBLE
+                        | MemoryPropertyFlags::HOST_COHERENT,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            image_data.into_raw(),
+        )
+        .unwrap();
+
+        let image = Image::new(
+            allocator.clone(),
+            ImageCreateInfo {
+                image_type: ImageType::Dim2d,
+                extent: image_extent,
+                mip_levels: 1,
+                array_layers: 1,
+                format: Format::R8G8B8A8_SRGB,
+                tiling: ImageTiling::Optimal,
+                initial_layout: ImageLayout::Undefined,
+                usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
+                sharing: Sharing::Exclusive,
+                samples: SampleCount::Sample1,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter {
+                    required_flags: MemoryPropertyFlags::DEVICE_LOCAL,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+
+        image.unwrap()
     }
 
     fn create_vertex_buffer(
@@ -928,11 +975,25 @@ impl VulkanRenderer {
 
         let mut uniform_buffer = self.uniform_buffers[image_index].write().unwrap();
 
-        uniform_buffer.model =
-            Quaternion::new(Vector3::new(0.0, 0.0, 1.0), elapsed_time.as_secs_f32())
-                .into_rotation_matrix();
+        uniform_buffer.model = Matrix4::identity();
+        // Quaternion::new(Vector3::new(0.0, 0.0, 1.0), elapsed_time.as_secs_f32()).into_rotation_matrix();
 
-        uniform_buffer.view = look_at(VECTOR3_ZERO, Vector3::new(0.0, elapsed_time.as_secs_f32().sin() * 5.0, 2.0));
+        uniform_buffer.view = look_at(
+            VECTOR3_ZERO,
+            Vector3::new(0.0, elapsed_time.as_secs_f32().sin() * 5.0, 2.0),
+        );
         uniform_buffer.proj = perspective(60.0, aspect_ratio, 0.1, 100.0);
+    }
+
+    fn transition_image_layout(image: Arc<Image>, old_layout: ImageLayout, new_layout: ImageLayout, command_pool: &CommandPool) {
+
+        let mut barrier = ImageMemoryBarrier{
+            old_layout,
+            new_layout,
+            queue_family_ownership_transfer: None,
+            subresource_range: ImageSubresourceRange { aspects: ImageAspects::COLOR, mip_levels: 0..1, array_layers: 0..1 },
+            ..ImageMemoryBarrier::image(image)
+        };
+
     }
 }

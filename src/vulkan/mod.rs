@@ -5,3 +5,4 @@ pub mod shader;
 pub mod command_pool;
 pub mod vertex_buffer;
 pub mod ubo;
+pub mod buffers;

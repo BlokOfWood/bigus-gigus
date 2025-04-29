@@ -1,5 +1,7 @@
 use super::{matrix::Matrix4, vector::Vector3};
 
+#[allow(unused)]
+
 pub struct Quaternion {
     x: f32,
     y: f32,
