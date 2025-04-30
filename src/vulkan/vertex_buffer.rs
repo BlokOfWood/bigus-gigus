@@ -13,6 +13,7 @@ use vulkano::{
 pub struct Vertex {
     pos: [f32; 2],
     color: [f32; 3],
+    tex_coord: [f32; 2],
 }
 
 #[derive(BufferContents)]
@@ -25,18 +26,22 @@ pub const VERTICES: [Vertex; 4] = [
     Vertex {
         pos: [-0.5, -0.5],
         color: [1.0, 0.0, 0.0],
+        tex_coord: [1.0, 0.0],
     },
     Vertex {
         pos: [0.5, -0.5],
         color: [0.0, 1.0, 0.0],
+        tex_coord: [0.0, 0.0],
     },
     Vertex {
         pos: [0.5, 0.5],
         color: [0.0, 0.0, 1.0],
+        tex_coord: [0.0, 1.0],
     },
     Vertex {
         pos: [-0.5, 0.5],
         color: [1.0, 1.0, 1.0],
+        tex_coord: [1.0, 1.0],
     },
 ];
 
@@ -52,7 +57,7 @@ impl VertexBuffer {
         }
     }
 
-    pub fn get_attribute_descriptions() -> [(u32, VertexInputAttributeDescription); 2] {
+    pub fn get_attribute_descriptions() -> [(u32, VertexInputAttributeDescription); 3] {
         [
             (
                 0,
@@ -70,6 +75,14 @@ impl VertexBuffer {
                     offset: offset_of!(Vertex, color) as u32,
                 },
             ),
+            (
+                2,
+                VertexInputAttributeDescription {
+                    binding: 0,
+                    format: Format::R32G32_SFLOAT,
+                    offset: offset_of!(Vertex, tex_coord) as u32,
+                }
+            )
         ]
     }
 }

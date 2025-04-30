@@ -101,7 +101,7 @@ impl CommandPool {
             .set_scissor(0, vec![scissor].into())
             .unwrap();
 
-        command_builder.bind_descriptor_sets(PipelineBindPoint::Graphics, pipeline.layout().clone(), 0, descriptor_set).unwrap();
+        command_builder.bind_descriptor_sets(PipelineBindPoint::Graphics, pipeline.layout().clone(), 0, vec![descriptor_set]).unwrap();
 
         command_builder
             .draw_indexed(INDICES.len() as u32, 1, 0, 0, 0)

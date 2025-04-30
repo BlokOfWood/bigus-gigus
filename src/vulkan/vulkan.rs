@@ -1,8 +1,17 @@
 use std::{collections::BTreeMap, sync::Arc, time::Instant};
 
+use smallvec::smallvec;
 use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
-    command_buffer::{allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferExecFuture, PrimaryAutoCommandBuffer},
+    command_buffer::{
+        allocator::{
+            CommandBufferAllocator, CommandBufferBuilderAlloc, StandardCommandBufferAllocator,
+            StandardCommandBufferAllocatorCreateInfo,
+        },
+        sys::{CommandBufferBeginInfo, UnsafeCommandBufferBuilder},
+        AutoCommandBufferBuilder, CommandBufferExecFuture, CommandBufferLevel, CommandBufferUsage,
+        CopyBufferToImageInfo, CopyImageToBufferInfo, PrimaryAutoCommandBuffer,
+    },
     descriptor_set::{
         allocator::StandardDescriptorSetAllocator,
         layout::{
@@ -12,11 +21,15 @@ use vulkano::{
         PersistentDescriptorSet, WriteDescriptorSet,
     },
     device::{
-        physical::PhysicalDevice, Device, DeviceCreateInfo, DeviceExtensions, DeviceOwned, Features, Queue, QueueCreateInfo
+        physical::PhysicalDevice, Device, DeviceCreateInfo, DeviceExtensions, DeviceOwned,
+        Features, Queue, QueueCreateInfo,
     },
     format::Format,
     image::{
-        sampler::ComponentMapping,
+        sampler::{
+            BorderColor, ComponentMapping, Filter, Sampler, SamplerAddressMode, SamplerCreateInfo,
+            SamplerMipmapMode,
+        },
         view::{ImageView, ImageViewCreateInfo, ImageViewType},
         Image, ImageAspects, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling,
         ImageType, ImageUsage, SampleCount,
@@ -55,7 +68,9 @@ use vulkano::{
         SurfaceInfo, Swapchain, SwapchainAcquireFuture, SwapchainCreateInfo, SwapchainPresentInfo,
     },
     sync::{
-        self, future::{FenceSignalFuture, JoinFuture}, AccessFlags, GpuFuture, ImageMemoryBarrier, PipelineStages, Sharing
+        self,
+        future::{FenceSignalFuture, JoinFuture},
+        AccessFlags, DependencyInfo, GpuFuture, ImageMemoryBarrier, PipelineStages, Sharing,
     },
     Validated, VulkanError, VulkanLibrary,
 };
@@ -73,6 +88,7 @@ use crate::{
 };
 
 use super::{
+    buffers::{create_index_buffer, create_vertex_buffer},
     command_pool::CommandPool,
     queue_family::QueueFamilies,
     shader::Shaders,
@@ -129,11 +145,11 @@ impl VulkanRenderer {
             .expect("Failed to create surface from window.");
         let phys_dev = Self::create_vulkan_physical_device(inst.clone(), surface.clone());
 
-        let (dev, queues) = Self::create_device_and_queues(phys_dev.clone(), surface.clone());
+        let (device, queues) = Self::create_device_and_queues(phys_dev.clone(), surface.clone());
 
         let (swap_chain, images, format, extent) = Self::create_swap_chain(
             phys_dev.clone(),
-            dev.clone(),
+            device.clone(),
             surface.clone(),
             phys_dev
                 .clone()
@@ -144,15 +160,15 @@ impl VulkanRenderer {
 
         let image_views = Self::create_image_views(&images, format);
 
-        let render_pass = Self::create_render_pass(dev.clone(), format);
+        let render_pass = Self::create_render_pass(device.clone(), format);
 
-        let descriptor_set_layout = match Self::create_descriptor_set_layout(dev.clone()) {
+        let descriptor_set_layout = match Self::create_descriptor_set_layout(device.clone()) {
             Ok(descriptor_set_layout) => descriptor_set_layout,
             Err(err) => panic!("Failed to create descriptor set layout! Error: {}", err),
         };
 
         let (pipeline_layout, graphics_pipeline) = Self::create_graphics_pipeline(
-            dev.clone(),
+            device.clone(),
             render_pass.clone(),
             extent,
             vec![descriptor_set_layout.clone()],
@@ -160,19 +176,19 @@ impl VulkanRenderer {
 
         let frame_buffers = Self::create_frame_buffers(render_pass.clone(), &image_views, extent);
 
-        let command_pool = CommandPool::new(dev.clone(), phys_dev.clone(), surface.clone());
+        let command_pool = CommandPool::new(device.clone(), phys_dev.clone(), surface.clone());
 
-        let allocator = Arc::new(Self::create_memory_allocator(dev.clone()));
+        let allocator = Arc::new(Self::create_memory_allocator(device.clone()));
 
-        let vertex_buffer = Self::create_vertex_buffer(
-            dev.clone(),
+        let vertex_buffer = create_vertex_buffer(
+            device.clone(),
             queues.graphics_queue.clone(),
             &command_pool,
             allocator.clone(),
         );
 
-        let index_buffer = Self::create_index_buffer(
-            dev.clone(),
+        let index_buffer = create_index_buffer(
+            device.clone(),
             queues.graphics_queue.clone(),
             &command_pool,
             allocator.clone(),
@@ -180,19 +196,36 @@ impl VulkanRenderer {
 
         let uniform_buffers =
             Self::create_uniform_buffers((&images).len(), allocator.clone()).unwrap();
+        let image = Self::create_texture_image(
+            allocator.clone(),
+            &StandardCommandBufferAllocator::new(
+                device.clone(),
+                StandardCommandBufferAllocatorCreateInfo {
+                    primary_buffer_count: 1,
+                    ..Default::default()
+                },
+            ),
+            queues.graphics_queue.clone(),
+            device.clone(),
+        );
+
+        let image_view = Self::create_texture_image_view(image.clone());
+
+        let texture_sampler = Self::create_texture_sampler(device.clone());
+
         let descriptor_sets = Self::create_descriptor_sets(
             descriptor_set_layout.clone(),
             &uniform_buffers,
-            dev.clone(),
+            device.clone(),
+            image_view.clone(),
+            texture_sampler.clone(),
         );
-
-        let image = Self::create_texture_image(allocator.clone());
 
         VulkanRenderer {
             fences: vec![None; (&images).len()],
             inst,
             phys_dev,
-            dev: dev.clone(),
+            dev: device.clone(),
             queues,
             surface,
             swap_chain,
@@ -385,7 +418,10 @@ impl VulkanRenderer {
             ..Default::default()
         };
 
-        let enabled_features = Features::default();
+        let enabled_features = Features {
+            sampler_anisotropy: true,
+            ..Default::default()
+        };
 
         let mut enabled_extensions = DeviceExtensions::default();
         enabled_extensions.khr_swapchain = true;
@@ -720,12 +756,24 @@ impl VulkanRenderer {
         )
     }
 
-    fn create_texture_image(allocator: Arc<dyn MemoryAllocator>) -> Arc<Image> {
+    fn create_texture_image(
+        allocator: Arc<dyn MemoryAllocator>,
+        command_buffer_allocator: &StandardCommandBufferAllocator,
+        queue: Arc<Queue>,
+        device: Arc<Device>,
+    ) -> Arc<Image> {
         let open_image = image::open("assets/textures/statue.jpg").unwrap();
 
         let image_extent = [open_image.width(), open_image.height(), 1];
 
         let image_data = open_image.to_rgba8();
+
+        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+            command_buffer_allocator,
+            queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
 
         let staging_buffer: Subbuffer<[u8]> = Buffer::from_iter(
             allocator.clone(),
@@ -768,133 +816,30 @@ impl VulkanRenderer {
                 },
                 ..Default::default()
             },
-        );
-
-        image.unwrap()
-    }
-
-    fn create_vertex_buffer(
-        dev: Arc<Device>,
-        graphics_queue: Arc<Queue>,
-        command_pool: &CommandPool,
-        allocator: Arc<dyn MemoryAllocator>,
-    ) -> Arc<Buffer> {
-        let staging_buffer = Buffer::from_data(
-            allocator.clone(),
-            BufferCreateInfo {
-                usage: BufferUsage::TRANSFER_SRC,
-                sharing: Sharing::Exclusive,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter {
-                    required_flags: MemoryPropertyFlags::HOST_VISIBLE
-                        | MemoryPropertyFlags::HOST_COHERENT,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            VertexData { vertices: VERTICES },
         )
         .unwrap();
 
-        let vertex_buffer = Buffer::new(
-            allocator,
-            BufferCreateInfo {
-                usage: BufferUsage::TRANSFER_DST | BufferUsage::VERTEX_BUFFER,
-                sharing: Sharing::Exclusive,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter {
-                    required_flags: MemoryPropertyFlags::DEVICE_LOCAL,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            DeviceLayout::from_size_alignment(
-                (size_of::<VertexData>()) as u64,
-                DeviceAlignment::MIN.into(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
+        command_buffer_builder
+            .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
+                staging_buffer,
+                image.clone(),
+            ))
+            .unwrap();
 
-        let command_buffer = command_pool
-            .record_copy_pass(staging_buffer.into_bytes(), vertex_buffer.clone().into());
+        let command_buffer = command_buffer_builder.build().unwrap();
 
-        let mut now = sync::now(dev.clone());
+        let mut now = sync::now(device.clone());
         now.cleanup_finished();
         let gpu_future = now.boxed();
 
         let _ = gpu_future
-            .then_execute(graphics_queue.clone(), command_buffer)
+            .then_execute(queue, command_buffer)
             .unwrap()
             .then_signal_fence_and_flush()
             .unwrap()
             .wait(None);
 
-        vertex_buffer
-    }
-
-    fn create_index_buffer(
-        dev: Arc<Device>,
-        graphics_queue: Arc<Queue>,
-        command_pool: &CommandPool,
-        allocator: Arc<dyn MemoryAllocator>,
-    ) -> Arc<Buffer> {
-        let staging_buffer = Buffer::from_data(
-            allocator.clone(),
-            BufferCreateInfo {
-                usage: BufferUsage::TRANSFER_SRC,
-                sharing: Sharing::Exclusive,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter {
-                    required_flags: MemoryPropertyFlags::HOST_VISIBLE
-                        | MemoryPropertyFlags::HOST_COHERENT,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            INDICES,
-        )
-        .unwrap();
-
-        let index_buffer = Buffer::new(
-            allocator,
-            BufferCreateInfo {
-                usage: BufferUsage::TRANSFER_DST | BufferUsage::INDEX_BUFFER,
-                sharing: Sharing::Exclusive,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter {
-                    required_flags: MemoryPropertyFlags::DEVICE_LOCAL,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            DeviceLayout::from_size_alignment(12, DeviceAlignment::MIN.into()).unwrap(),
-        )
-        .unwrap();
-
-        let command_buffer =
-            command_pool.record_copy_pass(staging_buffer.into_bytes(), index_buffer.clone().into());
-
-        let mut now = sync::now(dev.clone());
-        now.cleanup_finished();
-        let gpu_future = now.boxed();
-
-        let _ = gpu_future
-            .then_execute(graphics_queue.clone(), command_buffer)
-            .unwrap()
-            .then_signal_fence_and_flush()
-            .unwrap()
-            .wait(None);
-
-        index_buffer
+        image
     }
 
     fn create_descriptor_set_layout(
@@ -905,8 +850,13 @@ impl VulkanRenderer {
             ..DescriptorSetLayoutBinding::descriptor_type(DescriptorType::UniformBuffer)
         };
 
+        let sampler_layout_binding = DescriptorSetLayoutBinding {
+            stages: ShaderStages::FRAGMENT,
+            ..DescriptorSetLayoutBinding::descriptor_type(DescriptorType::CombinedImageSampler)
+        };
+
         let layout_create_info = DescriptorSetLayoutCreateInfo {
-            bindings: BTreeMap::from([(0, ubo_layout_binding)]),
+            bindings: BTreeMap::from([(0, ubo_layout_binding), (1, sampler_layout_binding)]),
             ..Default::default()
         };
 
@@ -950,17 +900,22 @@ impl VulkanRenderer {
         layout: Arc<DescriptorSetLayout>,
         uniform_buffers: &[Subbuffer<UniformBufferObject>], // Pass in the buffersr_sets(
         device: Arc<Device>,
+        image_view: Arc<ImageView>,
+        sampler: Arc<Sampler>,
     ) -> Vec<Arc<PersistentDescriptorSet>> {
         let descriptor_set_allocator =
             StandardDescriptorSetAllocator::new(device.clone(), Default::default());
         let num_sets = uniform_buffers.len();
-        let mut descriptor_sets: Vec<Arc<PersistentDescriptorSet>> = Vec::with_capacity(num_sets);
+        let mut descriptor_sets: Vec<Arc<PersistentDescriptorSet>> = Vec::new();
 
         for i in 0..num_sets {
             let set = PersistentDescriptorSet::new(
                 &descriptor_set_allocator,
                 layout.clone(),
-                [WriteDescriptorSet::buffer(0, uniform_buffers[i].clone())],
+                [
+                    WriteDescriptorSet::buffer(0, uniform_buffers[i].clone()),
+                    WriteDescriptorSet::image_view_sampler(1, image_view.clone(), sampler.clone()),
+                ],
                 [],
             )
             .unwrap(); // Handle potential errors
@@ -985,15 +940,40 @@ impl VulkanRenderer {
         uniform_buffer.proj = perspective(60.0, aspect_ratio, 0.1, 100.0);
     }
 
-    fn transition_image_layout(image: Arc<Image>, old_layout: ImageLayout, new_layout: ImageLayout, command_pool: &CommandPool) {
+    fn create_texture_image_view(image: Arc<Image>) -> Arc<ImageView> {
+        ImageView::new(
+            image,
+            ImageViewCreateInfo {
+                view_type: ImageViewType::Dim2d,
+                format: Format::R8G8B8A8_SRGB,
+                subresource_range: ImageSubresourceRange {
+                    aspects: ImageAspects::COLOR,
+                    mip_levels: 0..1,
+                    array_layers: 0..1,
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    }
 
-        let mut barrier = ImageMemoryBarrier{
-            old_layout,
-            new_layout,
-            queue_family_ownership_transfer: None,
-            subresource_range: ImageSubresourceRange { aspects: ImageAspects::COLOR, mip_levels: 0..1, array_layers: 0..1 },
-            ..ImageMemoryBarrier::image(image)
-        };
-
+    fn create_texture_sampler(device: Arc<Device>) -> Arc<Sampler> {
+        Sampler::new(
+            device.clone(),
+            SamplerCreateInfo {
+                mag_filter: Filter::Linear,
+                min_filter: Filter::Linear,
+                address_mode: [SamplerAddressMode::Repeat; 3],
+                anisotropy: Some(device.physical_device().properties().max_sampler_anisotropy),
+                border_color: BorderColor::IntOpaqueBlack,
+                unnormalized_coordinates: false,
+                compare: None,
+                mipmap_mode: SamplerMipmapMode::Linear,
+                mip_lod_bias: 0.0,
+                lod: 0.0..=0.0,
+                ..Default::default()
+            },
+        )
+        .unwrap()
     }
 }

@@ -8,6 +8,7 @@ vulkano = { version = "*" }
 winit = { version = "*", features = ["rwh_05"] }
 ahash = "*"
 image = { version = "0.25" }
+smallvec = "*"
 
 [profile.release]
 debug = 1

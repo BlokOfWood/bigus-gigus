@@ -50,10 +50,10 @@ pub fn perspective(horizontal_fov: f32, aspect_ratio: f32, near: f32, far: f32) 
     let mut output = Matrix4::new();
 
     output[[0, 0]] = near / right;
-    output[[1, 1]] = near / top * -1.0;
-    output[[2, 2]] = -(far + near) / (far - near);
+    output[[1, 1]] = -1.0 * near / top;
+    output[[2, 2]] = near / (far - near);
     output[[2, 3]] = -1.0;
-    output[[3, 2]] = (-2.0 * far * near) / (far - near);
+    output[[3, 2]] = (far * near) / (far - near);
 
     output
 }
