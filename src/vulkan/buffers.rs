@@ -11,14 +11,128 @@ use vulkano::{
     Validated, VulkanError,
 };
 
-use crate::math::{graphics_ops::{look_at, perspective}, quaternion::Quaternion, vector::{Vector3, VECTOR3_ZERO}};
+use crate::math::{
+    graphics_ops::{look_at, perspective},
+    quaternion::Quaternion,
+    vector::{Vector3, VECTOR3_ZERO},
+};
 
 use super::{
     command_pool::CommandPool,
     ubo::UniformBufferObject,
-    vertex_buffer::{VertexData, INDICES, VERTICES},
     vulkan::VulkanRenderer,
 };
+use std::mem::offset_of;
+
+use vulkano::{
+    buffer::BufferContents,
+    format::Format,
+    pipeline::graphics::vertex_input::{
+        VertexInputAttributeDescription, VertexInputBindingDescription,
+    },
+};
+
+#[derive(BufferContents)]
+#[repr(C)]
+pub struct Vertex {
+    pos: [f32; 3],
+    color: [f32; 3],
+    tex_coord: [f32; 2],
+}
+
+#[derive(BufferContents)]
+#[repr(transparent)]
+pub struct VertexData {
+    pub vertices: [Vertex; 8],
+}
+
+pub const VERTICES: [Vertex; 8] = [
+    Vertex {
+        pos: [-0.5, -0.5, 0.0],
+        color: [1.0, 0.0, 0.0],
+        tex_coord: [0.0, 0.0],
+    },
+    Vertex {
+        pos: [0.5, -0.5, 0.0],
+        color: [0.0, 1.0, 0.0],
+        tex_coord: [1.0, 0.0],
+    },
+    Vertex {
+        pos: [0.5, 0.5, 0.0],
+        color: [0.0, 0.0, 1.0],
+        tex_coord: [1.0, 1.0],
+    },
+    Vertex {
+        pos: [-0.5, 0.5, 0.0],
+        color: [1.0, 1.0, 1.0],
+        tex_coord: [0.0, 1.0],
+    },
+    Vertex {
+        pos: [-0.5, -0.5, -0.5],
+        color: [1.0, 0.0, 0.0],
+        tex_coord: [0.0, 0.0],
+    },
+    Vertex {
+        pos: [0.5, -0.5, -0.5],
+        color: [0.0, 1.0, 0.0],
+        tex_coord: [1.0, 0.0],
+    },
+    Vertex {
+        pos: [0.5, 0.5, -0.5],
+        color: [0.0, 0.0, 1.0],
+        tex_coord: [1.0, 1.0],
+    },
+    Vertex {
+        pos: [-0.5, 0.5, -0.5],
+        color: [1.0, 1.0, 1.0],
+        tex_coord: [0.0, 1.0],
+    },
+];
+
+pub const INDICES: [u16; 12] = [
+    0, 1, 2, 2, 3, 0,  
+    4, 5, 6, 6, 7, 4,  
+];
+
+pub struct VertexBuffer;
+
+impl VertexBuffer {
+    pub fn get_binding_description() -> VertexInputBindingDescription {
+        VertexInputBindingDescription {
+            stride: size_of::<Vertex>() as u32,
+            input_rate: vulkano::pipeline::graphics::vertex_input::VertexInputRate::Vertex,
+        }
+    }
+
+    pub fn get_attribute_descriptions() -> [(u32, VertexInputAttributeDescription); 3] {
+        [
+            (
+                0,
+                VertexInputAttributeDescription {
+                    binding: 0,
+                    format: Format::R32G32B32_SFLOAT,
+                    offset: offset_of!(Vertex, pos) as u32,
+                },
+            ),
+            (
+                1,
+                VertexInputAttributeDescription {
+                    binding: 0,
+                    format: Format::R32G32B32_SFLOAT,
+                    offset: offset_of!(Vertex, color) as u32,
+                },
+            ),
+            (
+                2,
+                VertexInputAttributeDescription {
+                    binding: 0,
+                    format: Format::R32G32_SFLOAT,
+                    offset: offset_of!(Vertex, tex_coord) as u32,
+                },
+            ),
+        ]
+    }
+}
 
 pub(crate) fn create_vertex_buffer(
     dev: Arc<Device>,
@@ -123,7 +237,10 @@ pub(crate) fn create_index_buffer(
             },
             ..Default::default()
         },
-        DeviceLayout::from_size_alignment(12, DeviceAlignment::MIN.into()).unwrap(),
+        DeviceLayout::from_size_alignment(
+            (std::mem::size_of::<u16>() * INDICES.len()) as u64,
+            DeviceAlignment::MIN.into()
+        ).unwrap(),
     )
     .unwrap();
 

@@ -81,7 +81,30 @@ pub struct VulkanRenderer {
 
 impl VulkanRenderer {
     pub fn new(window: Arc<Window>, event_loop: &ActiveEventLoop) -> Self {
-        let inst = Self::create_vulkan_instance(event_loop);
+        let vk_library = VulkanLibrary::new().expect("Vulkan unavailable");
+        println!(
+            "Loaded Vulkan with version: {}. Extension count: {}",
+            vk_library.api_version(),
+            vk_library.supported_extensions().into_iter().count()
+        );
+        let mut enabled_extensions = Surface::required_extensions(event_loop);
+        let mut enabled_layers = Vec::new();
+        if cfg!(debug_assertions) {
+            println!("Enabling validation layers");
+            enabled_extensions.ext_debug_utils = true;
+            enabled_layers.push("VK_LAYER_KHRONOS_validation".to_string());
+        }
+        let instance_info = InstanceCreateInfo {
+            application_name: Some(APPLICATION_NAME.to_string()),
+            engine_name: Some(ENGINE_NAME.to_string()),
+            enabled_extensions,
+            enabled_layers,
+            ..Default::default()
+        };
+
+        let inst =
+            Instance::new(vk_library, instance_info).expect("Failed to create Vulkan instance");
+
         let surface = Surface::from_window(inst.clone(), window.clone())
             .expect("Failed to create surface from window.");
         let phys_dev = create_vulkan_physical_device(inst.clone(), surface.clone());
@@ -115,7 +138,20 @@ impl VulkanRenderer {
 
         let command_pool = CommandPool::new(device.clone(), phys_dev.clone(), surface.clone());
 
-        let allocator = Arc::new(Self::create_memory_allocator(device.clone()));
+        let allocator: Arc<GenericMemoryAllocator<suballocator::FreeListAllocator>> =
+            Arc::new(GenericMemoryAllocator::new(
+                device.clone(),
+                GenericMemoryAllocatorCreateInfo {
+                    block_sizes: phys_dev
+                        .memory_properties()
+                        .memory_types
+                        .iter()
+                        .map(|_| 0xFF)
+                        .collect::<Vec<u64>>()
+                        .as_slice(),
+                    ..Default::default()
+                },
+            ));
 
         let vertex_buffer = create_vertex_buffer(
             device.clone(),
@@ -255,53 +291,5 @@ impl VulkanRenderer {
 
         self.fences[image_idx as usize] = Some(Arc::new(new_fence));
         self.fence_idx = image_idx;
-    }
-
-    fn create_vulkan_instance(event_loop: &impl HasRawDisplayHandle) -> Arc<Instance> {
-        let vk_library = VulkanLibrary::new().expect("Vulkan unavailable");
-        println!(
-            "Loaded Vulkan with version: {}. Extension count: {}",
-            vk_library.api_version(),
-            vk_library.supported_extensions().into_iter().count()
-        );
-
-        let mut enabled_extensions = Surface::required_extensions(event_loop);
-        let mut enabled_layers = Vec::new();
-
-        if cfg!(debug_assertions) {
-            println!("Enabling validation layers");
-            enabled_extensions.ext_debug_utils = true;
-            enabled_layers.push("VK_LAYER_KHRONOS_validation".to_string());
-        }
-
-        let instance_info = InstanceCreateInfo {
-            application_name: Some(APPLICATION_NAME.to_string()),
-            engine_name: Some(ENGINE_NAME.to_string()),
-            enabled_extensions,
-            enabled_layers,
-            ..Default::default()
-        };
-
-        Instance::new(vk_library, instance_info).expect("Failed to create Vulkan instance")
-    }
-
-    fn create_memory_allocator(
-        device: Arc<Device>,
-    ) -> GenericMemoryAllocator<suballocator::FreeListAllocator> {
-        let block_sizes: Vec<u64> = device
-            .physical_device()
-            .memory_properties()
-            .memory_types
-            .iter()
-            .map(|_| 0xFF)
-            .collect();
-
-        GenericMemoryAllocator::new(
-            device,
-            GenericMemoryAllocatorCreateInfo {
-                block_sizes: block_sizes.as_slice(),
-                ..Default::default()
-            },
-        )
     }
 }

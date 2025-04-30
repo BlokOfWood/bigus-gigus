@@ -11,7 +11,7 @@ use vulkano::{
     }, render_pass::{AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp, Framebuffer, RenderPass, RenderPassCreateInfo, SubpassDependency, SubpassDescription}, swapchain::Surface, sync::{AccessFlags, PipelineStages}
 };
 
-use super::{device_and_queues::QueueFamilyIndices, vertex_buffer::INDICES};
+use super::{buffers::INDICES, device_and_queues::QueueFamilyIndices};
 
 pub struct CommandPool {
     command_buffer_allocator: StandardCommandBufferAllocator,

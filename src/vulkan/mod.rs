@@ -3,7 +3,6 @@ pub mod device_and_queues;
 pub mod swap_chain;
 pub mod shader;
 pub mod command_pool;
-pub mod vertex_buffer;
 pub mod ubo;
 pub mod buffers;
 pub mod texture;

@@ -21,7 +21,7 @@ use vulkano::{
     }, render_pass::{RenderPass, Subpass}, shader::{EntryPoint, ShaderStages}
 };
 
-use super::{shader::Shaders, ubo::UniformBufferObject, vertex_buffer::VertexBuffer};
+use super::{buffers::VertexBuffer, shader::Shaders, ubo::UniformBufferObject};
 
 pub(super) fn create_descriptor_set_layout(device: Arc<Device>) -> Arc<DescriptorSetLayout> {
     let ubo_layout_binding = DescriptorSetLayoutBinding {

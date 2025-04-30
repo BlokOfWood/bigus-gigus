@@ -83,6 +83,7 @@ impl<const LHS_COLS: usize, const LHS_ROWS: usize, const RHS_COLS: usize>
 }
 
 impl<const SIZE: usize> Matrix<SIZE, SIZE> {
+    #[allow(dead_code)]
     pub fn identity() -> Self {
         let mut contents = [[0.0; SIZE]; SIZE];
 
