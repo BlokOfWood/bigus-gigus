@@ -3,17 +3,15 @@ use std::sync::Arc;
 use vulkano::{
     buffer::{Buffer, IndexBuffer, Subbuffer}, command_buffer::{
         allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
-        AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo,
-        PrimaryAutoCommandBuffer, RenderPassBeginInfo, SubpassBeginInfo, SubpassEndInfo,
-    }, descriptor_set::PersistentDescriptorSet, device::{physical::PhysicalDevice, Device}, format::ClearValue, pipeline::{
-        graphics::viewport::{Scissor, Viewport}, GraphicsPipeline, Pipeline, PipelineBindPoint
-    }, render_pass::{Framebuffer, RenderPass}, swapchain::Surface
+        AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo, PrimaryAutoCommandBuffer,
+        RenderPassBeginInfo, SubpassBeginInfo, SubpassEndInfo,
+    }, descriptor_set::PersistentDescriptorSet, device::{physical::PhysicalDevice, Device}, format::{ClearValue, Format}, image::{ImageLayout, SampleCount}, pipeline::{
+        graphics::viewport::{Scissor, Viewport},
+        GraphicsPipeline, Pipeline, PipelineBindPoint,
+    }, render_pass::{AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp, Framebuffer, RenderPass, RenderPassCreateInfo, SubpassDependency, SubpassDescription}, swapchain::Surface, sync::{AccessFlags, PipelineStages}
 };
 
-use super::{
-    queue_family::QueueFamilyIndices,
-    vertex_buffer::INDICES,
-};
+use super::{device_and_queues::QueueFamilyIndices, vertex_buffer::INDICES};
 
 pub struct CommandPool {
     command_buffer_allocator: StandardCommandBufferAllocator,
@@ -73,13 +71,15 @@ impl CommandPool {
             )
             .unwrap();
 
-        command_builder.bind_pipeline_graphics(pipeline.clone()).unwrap();
+        command_builder
+            .bind_pipeline_graphics(pipeline.clone())
+            .unwrap();
         command_builder
             .bind_vertex_buffers(0, Subbuffer::new(vertex_buffer.clone()))
             .unwrap();
 
-        if let Err(err) =
-            command_builder.bind_index_buffer(IndexBuffer::U16(Subbuffer::new(index_buffer).reinterpret()))
+        if let Err(err) = command_builder
+            .bind_index_buffer(IndexBuffer::U16(Subbuffer::new(index_buffer).reinterpret()))
         {
             println!("{}", err);
         }
@@ -101,7 +101,14 @@ impl CommandPool {
             .set_scissor(0, vec![scissor].into())
             .unwrap();
 
-        command_builder.bind_descriptor_sets(PipelineBindPoint::Graphics, pipeline.layout().clone(), 0, vec![descriptor_set]).unwrap();
+        command_builder
+            .bind_descriptor_sets(
+                PipelineBindPoint::Graphics,
+                pipeline.layout().clone(),
+                0,
+                vec![descriptor_set],
+            )
+            .unwrap();
 
         command_builder
             .draw_indexed(INDICES.len() as u32, 1, 0, 0, 0)
@@ -132,4 +139,48 @@ impl CommandPool {
 
         transfer_command_buffer.build().unwrap()
     }
+}
+
+pub(super) fn create_render_pass(dev: Arc<Device>, image_format: Format) -> Arc<RenderPass> {
+    let color_attachment = AttachmentDescription {
+        format: image_format,
+        samples: SampleCount::Sample1,
+        load_op: AttachmentLoadOp::Clear,
+        store_op: AttachmentStoreOp::Store,
+        stencil_load_op: Some(AttachmentLoadOp::DontCare),
+        stencil_store_op: Some(AttachmentStoreOp::DontCare),
+        initial_layout: ImageLayout::Undefined,
+        final_layout: ImageLayout::PresentSrc,
+        ..Default::default()
+    };
+
+    let subpass_dependency = SubpassDependency {
+        src_subpass: None,
+        dst_subpass: Some(0),
+        src_stages: PipelineStages::COLOR_ATTACHMENT_OUTPUT,
+        src_access: AccessFlags::empty(),
+        dst_stages: PipelineStages::COLOR_ATTACHMENT_OUTPUT,
+        dst_access: AccessFlags::COLOR_ATTACHMENT_WRITE,
+        ..Default::default()
+    };
+
+    let color_attachment_ref = AttachmentReference {
+        attachment: 0,
+        layout: ImageLayout::ColorAttachmentOptimal,
+        ..Default::default()
+    };
+
+    let subpass_desc = SubpassDescription {
+        color_attachments: vec![Some(color_attachment_ref)],
+        ..Default::default()
+    };
+
+    let render_pass_create_info = RenderPassCreateInfo {
+        attachments: vec![color_attachment],
+        subpasses: vec![subpass_desc],
+        dependencies: vec![subpass_dependency],
+        ..Default::default()
+    };
+
+    RenderPass::new(dev, render_pass_create_info).unwrap()
 }
