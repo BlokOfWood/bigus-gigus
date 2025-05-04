@@ -1,5 +1,6 @@
 use std::{sync::Arc, time::Instant};
 
+use ash::vk::Fence;
 use vulkano::{
     buffer::{Buffer, Subbuffer},
     command_buffer::{
@@ -7,7 +8,6 @@ use vulkano::{
         CommandBufferExecFuture,
     },
     descriptor_set::PersistentDescriptorSet,
-    device::Device,
     format::Format,
     image::{view::ImageView, Image},
     instance::{Instance, InstanceCreateInfo},
@@ -25,19 +25,19 @@ use vulkano::{
     },
     Validated, VulkanError, VulkanLibrary,
 };
-use winit::{
-    event_loop::ActiveEventLoop, raw_window_handle_05::HasRawDisplayHandle, window::Window,
-};
+use winit::{event_loop::ActiveEventLoop, window::Window};
+
+use crate::vulkan::{device_and_queues::BigusDevice, image::create_depth_resources};
 
 use super::{
     buffers::{create_index_buffer, create_uniform_buffers, create_vertex_buffer},
     command_pool::{create_render_pass, CommandPool},
-    device_and_queues::{create_device_and_queues, create_vulkan_physical_device, QueueFamilies},
-    pipeline::{create_descriptor_set_layout, create_descriptor_sets, create_graphics_pipeline},
-    swap_chain::{create_frame_buffers, create_swap_chain},
-    texture::{
+    device_and_queues::QueueFamilies,
+    image::{
         create_image_views, create_texture_image, create_texture_image_view, create_texture_sampler,
     },
+    pipeline::{create_descriptor_set_layout, create_descriptor_sets, create_graphics_pipeline},
+    swap_chain::{create_frame_buffers, create_swap_chain},
     ubo::UniformBufferObject,
 };
 
@@ -46,7 +46,7 @@ const APPLICATION_NAME: &str = "Very cool application";
 
 pub struct VulkanRenderer {
     pub(super) inst: Arc<Instance>,
-    pub(super) device: Arc<Device>,
+    pub(super) device: Arc<BigusDevice>,
     queues: QueueFamilies,
     pub(super) surface: Arc<Surface>,
     pub(super) swap_chain: Arc<Swapchain>,
@@ -54,6 +54,7 @@ pub struct VulkanRenderer {
     pub(super) image_format: Format,
     pub(super) image_extent: [u32; 2],
     pub(super) image_views: Vec<Arc<ImageView>>,
+    pub(super) depth_image_view: Arc<ImageView>,
     pub(super) render_pass: Arc<RenderPass>,
     graphics_pipeline: Arc<GraphicsPipeline>,
     vertex_buffer: Arc<Buffer>,
@@ -75,7 +76,6 @@ pub struct VulkanRenderer {
             >,
         >,
     >,
-    fence_idx: u32,
     pub(super) start_time: Instant,
 }
 
@@ -107,42 +107,15 @@ impl VulkanRenderer {
 
         let surface = Surface::from_window(inst.clone(), window.clone())
             .expect("Failed to create surface from window.");
-        let phys_dev = create_vulkan_physical_device(inst.clone(), surface.clone());
 
-        let (device, queues) = create_device_and_queues(phys_dev.clone(), surface.clone());
-
-        let (swap_chain, images, image_format, image_extent) = create_swap_chain(
-            device.clone(),
-            surface.clone(),
-            phys_dev
-                .clone()
-                .surface_capabilities(Arc::as_ref(&surface), SurfaceInfo::default())
-                .unwrap(),
-            window,
-        );
-
-        let image_views = create_image_views(&images, image_format);
-
-        let render_pass = create_render_pass(device.clone(), image_format);
-
-        let descriptor_set_layout = create_descriptor_set_layout(device.clone());
-
-        let (_, graphics_pipeline) = create_graphics_pipeline(
-            device.clone(),
-            render_pass.clone(),
-            image_extent,
-            vec![descriptor_set_layout.clone()],
-        );
-
-        let frame_buffers = create_frame_buffers(render_pass.clone(), &image_views, image_extent);
-
-        let command_pool = CommandPool::new(device.clone(), phys_dev.clone(), surface.clone());
+        let device = BigusDevice::new(inst.clone(), surface.clone());
 
         let allocator: Arc<GenericMemoryAllocator<suballocator::FreeListAllocator>> =
             Arc::new(GenericMemoryAllocator::new(
-                device.clone(),
+                device.device(),
                 GenericMemoryAllocatorCreateInfo {
-                    block_sizes: phys_dev
+                    block_sizes: device
+                        .phys_device()
                         .memory_properties()
                         .memory_types
                         .iter()
@@ -153,15 +126,56 @@ impl VulkanRenderer {
                 },
             ));
 
-        let vertex_buffer = create_vertex_buffer(
+        let (swap_chain, images, image_format, image_extent) = create_swap_chain(
+            device.device(),
+            surface.clone(),
+            device
+                .phys_device()
+                .clone()
+                .surface_capabilities(Arc::as_ref(&surface), SurfaceInfo::default())
+                .unwrap(),
+            window,
+        );
+
+        let image_views = create_image_views(&images, image_format);
+
+        let (depth_image_view, depth_image_format) = create_depth_resources(
             device.clone(),
+            allocator.clone(),
+            [image_extent[0], image_extent[1], 1],
+        );
+
+        let render_pass = create_render_pass(device.device(), image_format, depth_image_format);
+
+        let descriptor_set_layout = create_descriptor_set_layout(device.device());
+
+        let (_, graphics_pipeline) = create_graphics_pipeline(
+            device.device(),
+            render_pass.clone(),
+            image_extent,
+            vec![descriptor_set_layout.clone()],
+        );
+
+        let frame_buffers = create_frame_buffers(
+            render_pass.clone(),
+            &image_views,
+            image_extent,
+            depth_image_view.clone(),
+        );
+
+        let command_pool = CommandPool::new(device.clone(), surface.clone());
+
+        let queues = device.queues();
+
+        let vertex_buffer = create_vertex_buffer(
+            device.device(),
             queues.graphics_queue.clone(),
             &command_pool,
             allocator.clone(),
         );
 
         let index_buffer = create_index_buffer(
-            device.clone(),
+            device.device(),
             queues.graphics_queue.clone(),
             &command_pool,
             allocator.clone(),
@@ -171,24 +185,24 @@ impl VulkanRenderer {
         let image = create_texture_image(
             allocator.clone(),
             &StandardCommandBufferAllocator::new(
-                device.clone(),
+                device.device(),
                 StandardCommandBufferAllocatorCreateInfo {
                     primary_buffer_count: 1,
                     ..Default::default()
                 },
             ),
             queues.graphics_queue.clone(),
-            device.clone(),
+            device.device(),
         );
 
         let image_view = create_texture_image_view(image.clone());
 
-        let texture_sampler = create_texture_sampler(device.clone());
+        let texture_sampler = create_texture_sampler(device.device());
 
         let descriptor_sets = create_descriptor_sets(
             descriptor_set_layout.clone(),
             &uniform_buffers,
-            device.clone(),
+            device.device(),
             image_view.clone(),
             texture_sampler.clone(),
         );
@@ -196,7 +210,7 @@ impl VulkanRenderer {
         VulkanRenderer {
             fences: vec![None; (&images).len()],
             inst,
-            device,
+            device: Arc::new(device),
             queues,
             surface,
             swap_chain,
@@ -204,6 +218,7 @@ impl VulkanRenderer {
             image_format,
             image_extent,
             image_views,
+            depth_image_view,
             render_pass,
             vertex_buffer,
             index_buffer,
@@ -212,7 +227,6 @@ impl VulkanRenderer {
             graphics_pipeline,
             frame_buffers,
             command_pool,
-            fence_idx: 0,
             start_time: Instant::now(),
         }
     }
@@ -254,7 +268,7 @@ impl VulkanRenderer {
 
         let previous_future = match self.fences[image_idx as usize].clone() {
             None => {
-                let mut now = sync::now(self.device.clone());
+                let mut now = sync::now(self.device.device());
                 now.cleanup_finished();
                 now.boxed()
             }
@@ -278,18 +292,20 @@ impl VulkanRenderer {
             }
         };
 
-        let new_fence = match presentation_result.map_err(Validated::unwrap) {
-            Ok(new_fence) => new_fence,
-            Err(VulkanError::OutOfDate) => {
-                return;
-            }
-            Err(err) => {
-                println!("Failed to present image, Error: {}", err);
-                return;
-            }
+        match presentation_result {
+            Ok(new_fence) => self.fences[image_idx as usize] = Some(Arc::new(new_fence)),
+            Err(err) => match err {
+                Validated::Error(err) => match err {
+                    VulkanError::OutOfDate => {
+                        return;
+                    }
+                    err => {
+                        println!("Failed to present image, Error: {}", err);
+                        return;
+                    }
+                },
+                Validated::ValidationError(err) => println!("wee {}", err),
+            },
         };
-
-        self.fences[image_idx as usize] = Some(Arc::new(new_fence));
-        self.fence_idx = image_idx;
     }
 }

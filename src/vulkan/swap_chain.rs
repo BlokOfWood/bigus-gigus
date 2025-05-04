@@ -9,7 +9,7 @@ use vulkano::{
 use winit::window::Window;
 
 use super::{
-    device_and_queues::QueueFamilyIndices, texture::create_image_views, vulkan::VulkanRenderer,
+    device_and_queues::QueueFamilyIndices, image::create_image_views, vulkan::VulkanRenderer,
 };
 
 pub struct SwapChainSupport {
@@ -159,12 +159,13 @@ pub(super) fn create_frame_buffers(
     render_pass: Arc<RenderPass>,
     image_views: &Vec<Arc<ImageView>>,
     image_extent: [u32; 2],
+    depth_image_view: Arc<ImageView>,
 ) -> Vec<Arc<Framebuffer>> {
     image_views
         .iter()
         .map(|image_view| {
             let framebuffer_create_info = FramebufferCreateInfo {
-                attachments: vec![image_view.clone()],
+                attachments: vec![image_view.clone(), depth_image_view.clone()],
                 extent: image_extent,
                 layers: 1,
                 ..Default::default()
@@ -184,7 +185,7 @@ impl VulkanRenderer {
 
         let swap_extent = choose_swap_extent(
             self.device
-                .physical_device()
+                .phys_device()
                 .surface_capabilities(&surface, SurfaceInfo::default())
                 .unwrap(),
             window.clone(),
@@ -208,6 +209,7 @@ impl VulkanRenderer {
             self.render_pass.clone(),
             &self.image_views,
             self.image_extent,
+            self.depth_image_view.clone()
         );
     }
 }

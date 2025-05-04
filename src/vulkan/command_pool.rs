@@ -1,17 +1,32 @@
 use std::sync::Arc;
 
 use vulkano::{
-    buffer::{Buffer, IndexBuffer, Subbuffer}, command_buffer::{
+    buffer::{Buffer, IndexBuffer, Subbuffer},
+    command_buffer::{
         allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
         AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo, PrimaryAutoCommandBuffer,
         RenderPassBeginInfo, SubpassBeginInfo, SubpassEndInfo,
-    }, descriptor_set::PersistentDescriptorSet, device::{physical::PhysicalDevice, Device}, format::{ClearValue, Format}, image::{ImageLayout, SampleCount}, pipeline::{
+    },
+    descriptor_set::PersistentDescriptorSet,
+    device::Device,
+    format::{ClearValue, Format},
+    image::{ImageLayout, SampleCount},
+    pipeline::{
         graphics::viewport::{Scissor, Viewport},
         GraphicsPipeline, Pipeline, PipelineBindPoint,
-    }, render_pass::{AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp, Framebuffer, RenderPass, RenderPassCreateInfo, SubpassDependency, SubpassDescription}, swapchain::Surface, sync::{AccessFlags, PipelineStages}
+    },
+    render_pass::{
+        AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp,
+        Framebuffer, RenderPass, RenderPassCreateInfo, SubpassDependency, SubpassDescription,
+    },
+    swapchain::Surface,
+    sync::{AccessFlags, PipelineStages},
 };
 
-use super::{buffers::INDICES, device_and_queues::QueueFamilyIndices};
+use super::{
+    buffers::INDICES,
+    device_and_queues::{BigusDevice, QueueFamilyIndices},
+};
 
 pub struct CommandPool {
     command_buffer_allocator: StandardCommandBufferAllocator,
@@ -19,8 +34,9 @@ pub struct CommandPool {
 }
 
 impl CommandPool {
-    pub fn new(dev: Arc<Device>, phys_dev: Arc<PhysicalDevice>, surface: Arc<Surface>) -> Self {
-        let queue_families = QueueFamilyIndices::find_queue_families(phys_dev, surface);
+    pub fn new(dev: BigusDevice, surface: Arc<Surface>) -> Self {
+        let queue_families =
+            QueueFamilyIndices::find_queue_families(dev.phys_device().clone(), surface);
 
         let command_buffer_allocator_info = StandardCommandBufferAllocatorCreateInfo {
             primary_buffer_count: 2,
@@ -30,7 +46,7 @@ impl CommandPool {
 
         CommandPool {
             command_buffer_allocator: StandardCommandBufferAllocator::new(
-                dev.clone(),
+                dev.device(),
                 command_buffer_allocator_info,
             ),
             graph_family_index: queue_families.graphics_family.unwrap(),
@@ -58,8 +74,10 @@ impl CommandPool {
         render_pass_info.render_pass = render_pass;
         render_pass_info.render_area_offset = [0, 0];
         render_pass_info.render_area_extent = extent;
-        render_pass_info.clear_values =
-            vec![Some(ClearValue::Float([0.0f32, 0.0f32, 0.0f32, 1.0f32]))];
+        render_pass_info.clear_values = vec![
+            Some(ClearValue::Float([0.0f32, 0.0f32, 0.0f32, 1.0f32])),
+            Some(ClearValue::Depth(1.0)),
+        ];
 
         command_builder
             .begin_render_pass(
@@ -141,7 +159,11 @@ impl CommandPool {
     }
 }
 
-pub(super) fn create_render_pass(dev: Arc<Device>, image_format: Format) -> Arc<RenderPass> {
+pub(super) fn create_render_pass(
+    dev: Arc<Device>,
+    image_format: Format,
+    depth_format: Format,
+) -> Arc<RenderPass> {
     let color_attachment = AttachmentDescription {
         format: image_format,
         samples: SampleCount::Sample1,
@@ -154,13 +176,26 @@ pub(super) fn create_render_pass(dev: Arc<Device>, image_format: Format) -> Arc<
         ..Default::default()
     };
 
+    let depth_attchment = AttachmentDescription {
+        format: depth_format,
+        samples: SampleCount::Sample1,
+        load_op: AttachmentLoadOp::Clear,
+        store_op: AttachmentStoreOp::DontCare,
+        stencil_load_op: Some(AttachmentLoadOp::DontCare),
+        stencil_store_op: Some(AttachmentStoreOp::DontCare),
+        initial_layout: ImageLayout::Undefined,
+        final_layout: ImageLayout::DepthStencilAttachmentOptimal,
+        ..Default::default()
+    };
+
     let subpass_dependency = SubpassDependency {
         src_subpass: None,
         dst_subpass: Some(0),
-        src_stages: PipelineStages::COLOR_ATTACHMENT_OUTPUT,
+        src_stages: PipelineStages::COLOR_ATTACHMENT_OUTPUT | PipelineStages::EARLY_FRAGMENT_TESTS,
         src_access: AccessFlags::empty(),
-        dst_stages: PipelineStages::COLOR_ATTACHMENT_OUTPUT,
-        dst_access: AccessFlags::COLOR_ATTACHMENT_WRITE,
+        dst_stages: PipelineStages::COLOR_ATTACHMENT_OUTPUT | PipelineStages::EARLY_FRAGMENT_TESTS,
+        dst_access: AccessFlags::COLOR_ATTACHMENT_WRITE
+            | AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
         ..Default::default()
     };
 
@@ -170,13 +205,20 @@ pub(super) fn create_render_pass(dev: Arc<Device>, image_format: Format) -> Arc<
         ..Default::default()
     };
 
+    let depth_attachment_ref = AttachmentReference {
+        attachment: 1,
+        layout: ImageLayout::DepthStencilAttachmentOptimal,
+        ..Default::default()
+    };
+
     let subpass_desc = SubpassDescription {
         color_attachments: vec![Some(color_attachment_ref)],
+        depth_stencil_attachment: Some(depth_attachment_ref),
         ..Default::default()
     };
 
     let render_pass_create_info = RenderPassCreateInfo {
-        attachments: vec![color_attachment],
+        attachments: vec![color_attachment, depth_attchment],
         subpasses: vec![subpass_desc],
         dependencies: vec![subpass_dependency],
         ..Default::default()

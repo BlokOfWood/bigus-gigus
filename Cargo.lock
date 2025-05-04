@@ -169,6 +169,7 @@ name = "bigus-gigus"
 version = "0.1.0"
 dependencies = [
  "ahash",
+ "ash",
  "image",
  "smallvec",
  "vulkano",

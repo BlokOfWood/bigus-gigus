@@ -1,12 +1,21 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use vulkano::{
-    buffer::Subbuffer, descriptor_set::{allocator::StandardDescriptorSetAllocator, layout::{
-        DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo,
-        DescriptorType,
-    }, PersistentDescriptorSet, WriteDescriptorSet}, device::Device, image::{sampler::Sampler, view::ImageView, SampleCount}, pipeline::{
+    buffer::Subbuffer,
+    descriptor_set::{
+        allocator::StandardDescriptorSetAllocator,
+        layout::{
+            DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo,
+            DescriptorType,
+        },
+        PersistentDescriptorSet, WriteDescriptorSet,
+    },
+    device::Device,
+    image::{sampler::Sampler, view::ImageView, SampleCount},
+    pipeline::{
         graphics::{
             color_blend::{ColorBlendAttachmentState, ColorBlendState, ColorComponents},
+            depth_stencil::{CompareOp, DepthState, DepthStencilState},
             input_assembly::{InputAssemblyState, PrimitiveTopology},
             multisample::MultisampleState,
             rasterization::{CullMode, FrontFace, PolygonMode, RasterizationState},
@@ -18,7 +27,9 @@ use vulkano::{
         layout::PipelineLayoutCreateInfo,
         DynamicState, GraphicsPipeline, PipelineCreateFlags, PipelineLayout,
         PipelineShaderStageCreateInfo,
-    }, render_pass::{RenderPass, Subpass}, shader::{EntryPoint, ShaderStages}
+    },
+    render_pass::{RenderPass, Subpass},
+    shader::{EntryPoint, ShaderStages},
 };
 
 use super::{buffers::VertexBuffer, shader::Shaders, ubo::UniformBufferObject};
@@ -138,6 +149,16 @@ pub(super) fn create_graphics_pipeline(
         ..Default::default()
     };
 
+    let depth_stencil_state = DepthStencilState {
+        depth: Some(DepthState {
+            write_enable: true,
+            compare_op: CompareOp::Less,
+        }),
+        depth_bounds: None,
+        stencil: None,
+        ..Default::default()
+    };
+
     let pipeline_layout_info = PipelineLayoutCreateInfo {
         set_layouts: descriptor_set_layouts,
         ..Default::default()
@@ -155,7 +176,7 @@ pub(super) fn create_graphics_pipeline(
     graphics_pipeline_create_info.viewport_state = Some(viewport_state);
     graphics_pipeline_create_info.rasterization_state = Some(rasterization_state);
     graphics_pipeline_create_info.multisample_state = Some(multisample_state);
-    graphics_pipeline_create_info.depth_stencil_state = None;
+    graphics_pipeline_create_info.depth_stencil_state = Some(depth_stencil_state);
     graphics_pipeline_create_info.color_blend_state = Some(color_blending);
     graphics_pipeline_create_info.dynamic_state =
         ahash::HashSet::from_iter([DynamicState::Viewport, DynamicState::Scissor]);

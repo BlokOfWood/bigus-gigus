@@ -3,8 +3,11 @@ use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferToImageInfo},
     device::{Device, Queue},
-    format::Format,
-    image::{sampler::ComponentMapping, Image, ImageCreateInfo, ImageLayout, ImageTiling, ImageType, ImageUsage, SampleCount},
+    format::{Format, FormatFeatures},
+    image::{
+        sampler::ComponentMapping, Image, ImageCreateInfo, ImageLayout, ImageTiling, ImageType,
+        ImageUsage, SampleCount,
+    },
 };
 use vulkano::{
     command_buffer::allocator::StandardCommandBufferAllocator,
@@ -24,6 +27,8 @@ use vulkano::{
     },
     sync::{self},
 };
+
+use super::device_and_queues::BigusDevice;
 
 pub fn create_texture_image(
     allocator: Arc<dyn MemoryAllocator>,
@@ -171,4 +176,65 @@ pub fn create_image_views(
     }
 
     image_views
+}
+
+pub fn create_depth_resources(
+    device: BigusDevice,
+    allocator: Arc<dyn MemoryAllocator>,
+    image_extent: [u32; 3],
+) -> (Arc<ImageView>, Format) {
+    let image_format = device.find_supported_format(
+        vec![
+            Format::D32_SFLOAT,
+            Format::D32_SFLOAT_S8_UINT,
+            Format::D24_UNORM_S8_UINT,
+        ],
+        ImageTiling::Optimal,
+        FormatFeatures::DEPTH_STENCIL_ATTACHMENT,
+    );
+
+    //let has_stencil_component =
+    //    image_format == Format::D32_SFLOAT_S8_UINT || image_format == Format::D24_UNORM_S8_UINT;
+
+    let depth_image = Image::new(
+        allocator.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim2d,
+            extent: image_extent,
+            mip_levels: 1,
+            array_layers: 1,
+            format: image_format,
+            tiling: ImageTiling::Optimal,
+            initial_layout: ImageLayout::Undefined,
+            usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT,
+            sharing: Sharing::Exclusive,
+            samples: SampleCount::Sample1,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter {
+                required_flags: MemoryPropertyFlags::DEVICE_LOCAL,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let depth_image_view = ImageView::new(
+        depth_image.clone(),
+        ImageViewCreateInfo {
+            view_type: ImageViewType::Dim2d,
+            format: image_format,
+            component_mapping: ComponentMapping::identity(),
+            subresource_range: ImageSubresourceRange {
+                array_layers: 0..1,
+                aspects: ImageAspects::DEPTH,
+                mip_levels: 0..1,
+            },
+            ..Default::default()
+        },
+    ).unwrap();
+
+    (depth_image_view, image_format)
 }

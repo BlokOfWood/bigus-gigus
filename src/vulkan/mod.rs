@@ -5,5 +5,5 @@ pub mod shader;
 pub mod command_pool;
 pub mod ubo;
 pub mod buffers;
-pub mod texture;
+pub mod image;
 pub mod pipeline;
