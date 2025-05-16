@@ -75,7 +75,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 if let Some(vk_renderer) = &mut self.vk_renderer {
-                    vk_renderer.draw_frame();
+                    //vk_renderer.draw_frame();
                 };
                 self.window.as_ref().unwrap().request_redraw();
             }
@@ -85,7 +85,7 @@ impl ApplicationHandler for App {
                 }
 
                 if let Some(vk_renderer) = &mut self.vk_renderer {
-                    vk_renderer.recreate_swap_chain(self.window.clone().unwrap());
+                    //vk_renderer.recreate_swap_chain(self.window.clone().unwrap());
                 };
             }
             _ => (),

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use ash::vk::{Format, VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate};
 use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
     device::{Device, Queue},
@@ -23,14 +24,6 @@ use super::{
     vulkan::VulkanRenderer,
 };
 use std::mem::offset_of;
-
-use vulkano::{
-    buffer::BufferContents,
-    format::Format,
-    pipeline::graphics::vertex_input::{
-        VertexInputAttributeDescription, VertexInputBindingDescription,
-    },
-};
 
 #[derive(BufferContents)]
 #[repr(C)]
@@ -99,8 +92,9 @@ pub struct VertexBuffer;
 impl VertexBuffer {
     pub fn get_binding_description() -> VertexInputBindingDescription {
         VertexInputBindingDescription {
+            binding: 0,
             stride: size_of::<Vertex>() as u32,
-            input_rate: vulkano::pipeline::graphics::vertex_input::VertexInputRate::Vertex,
+            input_rate: VertexInputRate::VERTEX,
         }
     }
 
@@ -112,6 +106,7 @@ impl VertexBuffer {
                     binding: 0,
                     format: Format::R32G32B32_SFLOAT,
                     offset: offset_of!(Vertex, pos) as u32,
+                    location: 0,
                 },
             ),
             (
@@ -120,6 +115,7 @@ impl VertexBuffer {
                     binding: 0,
                     format: Format::R32G32B32_SFLOAT,
                     offset: offset_of!(Vertex, color) as u32,
+                    location: 1,
                 },
             ),
             (
@@ -128,6 +124,7 @@ impl VertexBuffer {
                     binding: 0,
                     format: Format::R32G32_SFLOAT,
                     offset: offset_of!(Vertex, tex_coord) as u32,
+                    location: 2,
                 },
             ),
         ]

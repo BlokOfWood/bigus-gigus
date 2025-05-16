@@ -1,9 +1,10 @@
 pub mod vulkan;
+pub mod window;
 pub mod device_and_queues;
 pub mod swap_chain;
-pub mod shader;
+pub mod image;
+/*pub mod shader;
 pub mod command_pool;
 pub mod ubo;
 pub mod buffers;
-pub mod image;
-pub mod pipeline;
+pub mod pipeline;*/

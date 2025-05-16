@@ -1,35 +1,20 @@
-use std::{sync::Arc, time::Instant};
+use std::{ffi::CStr, sync::Arc};
 
-use ash::vk::Fence;
-use vulkano::{
-    buffer::{Buffer, Subbuffer},
-    command_buffer::{
-        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
-        CommandBufferExecFuture,
-    },
-    descriptor_set::PersistentDescriptorSet,
-    format::Format,
-    image::{view::ImageView, Image},
-    instance::{Instance, InstanceCreateInfo},
-    memory::allocator::{suballocator, GenericMemoryAllocator, GenericMemoryAllocatorCreateInfo},
-    pipeline::GraphicsPipeline,
-    render_pass::{Framebuffer, RenderPass},
-    swapchain::{
-        acquire_next_image, PresentFuture, Surface, SurfaceInfo, Swapchain, SwapchainAcquireFuture,
-        SwapchainPresentInfo,
-    },
-    sync::{
-        self,
-        future::{FenceSignalFuture, JoinFuture},
-        GpuFuture,
-    },
-    Validated, VulkanError, VulkanLibrary,
+use ash::{
+    vk::{self, ApplicationInfo, KHR_SWAPCHAIN_NAME},
+    Entry, Instance,
 };
-use winit::{event_loop::ActiveEventLoop, window::Window};
+use winit::{
+    event_loop::ActiveEventLoop,
+    raw_window_handle::{HasDisplayHandle, HasWindowHandle},
+    window::Window,
+};
 
-use crate::vulkan::{device_and_queues::BigusDevice, image::create_depth_resources};
+use crate::vulkan::{device_and_queues::QueueFamilyIndices, image::create_image_views, swap_chain::create_swap_chain, window::{create_surface, enumerate_required_extensions}};
 
-use super::{
+use crate::vulkan::device_and_queues::BigusDevice;
+
+/*use super::{
     buffers::{create_index_buffer, create_uniform_buffers, create_vertex_buffer},
     command_pool::{create_render_pass, CommandPool},
     device_and_queues::QueueFamilies,
@@ -39,14 +24,15 @@ use super::{
     pipeline::{create_descriptor_set_layout, create_descriptor_sets, create_graphics_pipeline},
     swap_chain::{create_frame_buffers, create_swap_chain},
     ubo::UniformBufferObject,
-};
+};*/
 
 const ENGINE_NAME: &str = "Very cool engine";
 const APPLICATION_NAME: &str = "Very cool application";
+pub(super) const REQUIRED_EXTENSIONS: [&CStr; 1] = [KHR_SWAPCHAIN_NAME];
 
 pub struct VulkanRenderer {
-    pub(super) inst: Arc<Instance>,
-    pub(super) device: Arc<BigusDevice>,
+    pub(super) inst: Instance,
+    /*pub(super) device: Arc<BigusDevice>,
     queues: QueueFamilies,
     pub(super) surface: Arc<Surface>,
     pub(super) swap_chain: Arc<Swapchain>,
@@ -56,89 +42,107 @@ pub struct VulkanRenderer {
     pub(super) image_views: Vec<Arc<ImageView>>,
     pub(super) depth_image_view: Arc<ImageView>,
     pub(super) render_pass: Arc<RenderPass>,
-    graphics_pipeline: Arc<GraphicsPipeline>,
+    graphics_pipeline: Arc<Pipeline>,
     vertex_buffer: Arc<Buffer>,
     index_buffer: Arc<Buffer>,
-    pub(super) uniform_buffers: Vec<Subbuffer<UniformBufferObject>>,
-    descriptor_sets: Vec<Arc<PersistentDescriptorSet>>,
+    pub(super) uniform_buffers: Vec<Buffer>,
+    descriptor_sets: Vec<Arc<DescriptorSet>>,
     pub(super) frame_buffers: Vec<Arc<Framebuffer>>,
     command_pool: CommandPool,
-    fences: Vec<
-        Option<
-            Arc<
-                FenceSignalFuture<
-                    PresentFuture<
-                        CommandBufferExecFuture<
-                            JoinFuture<Box<dyn GpuFuture>, SwapchainAcquireFuture>,
-                        >,
-                    >,
-                >,
-            >,
-        >,
-    >,
-    pub(super) start_time: Instant,
+    fences: Vec<Option<Arc<Fence>>>,
+    pub(super) start_time: Instant,*/
 }
 
 impl VulkanRenderer {
     pub fn new(window: Arc<Window>, event_loop: &ActiveEventLoop) -> Self {
-        let vk_library = VulkanLibrary::new().expect("Vulkan unavailable");
-        println!(
-            "Loaded Vulkan with version: {}. Extension count: {}",
-            vk_library.api_version(),
-            vk_library.supported_extensions().into_iter().count()
-        );
-        let mut enabled_extensions = Surface::required_extensions(event_loop);
-        let mut enabled_layers = Vec::new();
-        if cfg!(debug_assertions) {
-            println!("Enabling validation layers");
-            enabled_extensions.ext_debug_utils = true;
-            enabled_layers.push("VK_LAYER_KHRONOS_validation".to_string());
-        }
-        let instance_info = InstanceCreateInfo {
-            application_name: Some(APPLICATION_NAME.to_string()),
-            engine_name: Some(ENGINE_NAME.to_string()),
-            enabled_extensions,
-            enabled_layers,
+        let entry = Entry::linked();
+
+        let api_version = match unsafe { entry.try_enumerate_instance_version() } {
+            Ok(version) => match version {
+                Some(version) => format!(
+                    "{}.{}.{}",
+                    vk::api_version_major(version),
+                    vk::api_version_minor(version),
+                    vk::api_version_patch(version)
+                ),
+                None => "1.0.x".to_string(),
+            },
+            Err(err) => {
+                println!("Failed to acquire api version. Error: {}", err);
+                "?".to_string()
+            }
+        };
+
+        let application_info = ApplicationInfo {
+            p_application_name: APPLICATION_NAME.as_ptr() as *const i8,
+            p_engine_name: ENGINE_NAME.as_ptr() as *const i8,
             ..Default::default()
         };
 
-        let inst =
-            Instance::new(vk_library, instance_info).expect("Failed to create Vulkan instance");
+        let window_required_extensions =
+            enumerate_required_extensions(event_loop.display_handle().unwrap().into())
+                .expect("Failed to enumerate required extensions.");
 
-        let surface = Surface::from_window(inst.clone(), window.clone())
-            .expect("Failed to create surface from window.");
+        let mut enabled_layers = Vec::new();
+        let mut enabled_extensions = Vec::new();
+        window_required_extensions
+            .iter()
+            .for_each(|extension| enabled_extensions.push(*extension));
 
-        let device = BigusDevice::new(inst.clone(), surface.clone());
+        if cfg!(debug_assertions) {
+            println!("Enabling validation layers");
+            enabled_layers.push("VK_LAYER_KHRONOS_validation".as_ptr() as *const i8);
+        }
 
-        let allocator: Arc<GenericMemoryAllocator<suballocator::FreeListAllocator>> =
-            Arc::new(GenericMemoryAllocator::new(
-                device.device(),
-                GenericMemoryAllocatorCreateInfo {
-                    block_sizes: device
-                        .phys_device()
-                        .memory_properties()
-                        .memory_types
-                        .iter()
-                        .map(|_| 0xFF)
-                        .collect::<Vec<u64>>()
-                        .as_slice(),
-                    ..Default::default()
-                },
-            ));
+        let create_info = vk::InstanceCreateInfo {
+            enabled_layer_count: enabled_layers.len() as u32,
+            pp_enabled_layer_names: enabled_layers.as_ptr(),
+            enabled_extension_count: enabled_extensions.len() as u32,
+            pp_enabled_extension_names: enabled_extensions.as_ptr(),
+            p_application_info: &application_info,
+            ..Default::default()
+        };
 
-        let (swap_chain, images, image_format, image_extent) = create_swap_chain(
-            device.device(),
-            surface.clone(),
-            device
-                .phys_device()
-                .clone()
-                .surface_capabilities(Arc::as_ref(&surface), SurfaceInfo::default())
-                .unwrap(),
-            window,
+        let inst = unsafe {
+            entry
+                .create_instance(&create_info, None)
+                .expect("Vulkan unavailable")
+        };
+        println!(
+            "Loaded Vulkan with version: {}. Extension count: {}",
+            api_version,
+            unsafe { entry.enumerate_instance_extension_properties(None) }
+                .into_iter()
+                .count()
         );
 
-        let image_views = create_image_views(&images, image_format);
+        let surface = unsafe {
+            create_surface(
+                &entry,
+                &inst,
+                window.display_handle().unwrap().into(),
+                window.window_handle().unwrap().as_raw(),
+                None,
+            )
+            .expect("Failed to create surface from window.")
+        };
 
+        let bigus_device = BigusDevice::new(&entry, &inst, surface);
+
+        let queue_family_indices = QueueFamilyIndices::find_queue_families(&entry, &inst, bigus_device.phys_dev, surface);
+
+        let (swap_chain, images, image_format, image_extent) = create_swap_chain(
+            ash::khr::swapchain::Device::new(&inst, &bigus_device.dev),
+            bigus_device.phys_dev,
+            ash::khr::surface::Instance::new(&entry, &inst) ,
+            surface,
+            [window.inner_size().width, window.inner_size().height],
+            queue_family_indices
+        );
+        
+        let image_views = create_image_views(bigus_device.dev, images, image_format.format);
+        
+        /*
         let (depth_image_view, depth_image_format) = create_depth_resources(
             device.clone(),
             allocator.clone(),
@@ -205,11 +209,11 @@ impl VulkanRenderer {
             device.device(),
             image_view.clone(),
             texture_sampler.clone(),
-        );
+        );*/
 
         VulkanRenderer {
-            fences: vec![None; (&images).len()],
             inst,
+            /*    fences: vec![None; (&images).len()],
             device: Arc::new(device),
             queues,
             surface,
@@ -227,11 +231,11 @@ impl VulkanRenderer {
             graphics_pipeline,
             frame_buffers,
             command_pool,
-            start_time: Instant::now(),
+            start_time: Instant::now(),*/
         }
     }
 
-    pub fn draw_frame(&mut self) {
+    /*pub fn draw_frame(&mut self) {
         // Acquires an image from the swap chain to draw unto.
         // The swap chain is basically a buffer of images, where one of them is being displayed while we draw unto the other one.
         // Basically decouples presenting an image from drawing the image, so that we can sync with the monitor's refresh rate.
@@ -307,5 +311,5 @@ impl VulkanRenderer {
                 Validated::ValidationError(err) => println!("wee {}", err),
             },
         };
-    }
+    }*/
 }

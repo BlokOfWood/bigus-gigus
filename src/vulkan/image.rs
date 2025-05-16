@@ -1,35 +1,9 @@
-use std::sync::Arc;
-use vulkano::{
-    buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
-    command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferToImageInfo},
-    device::{Device, Queue},
-    format::{Format, FormatFeatures},
-    image::{
-        sampler::ComponentMapping, Image, ImageCreateInfo, ImageLayout, ImageTiling, ImageType,
-        ImageUsage, SampleCount,
-    },
-};
-use vulkano::{
-    command_buffer::allocator::StandardCommandBufferAllocator,
-    image::sampler::{
-        BorderColor, Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode,
-    },
-    sync::{GpuFuture, Sharing},
-};
-use vulkano::{
-    image::{
-        view::{ImageView, ImageViewCreateInfo, ImageViewType},
-        ImageAspects, ImageSubresourceRange,
-    },
-    memory::{
-        allocator::{AllocationCreateInfo, MemoryAllocator, MemoryTypeFilter},
-        MemoryPropertyFlags,
-    },
-    sync::{self},
+use ash::vk::{
+    Format, Image, ImageAspectFlags, ImageSubresourceRange, ImageView, ImageViewCreateInfo,
+    ImageViewType,
 };
 
-use super::device_and_queues::BigusDevice;
-
+/*
 pub fn create_texture_image(
     allocator: Arc<dyn MemoryAllocator>,
     command_buffer_allocator: &StandardCommandBufferAllocator,
@@ -151,33 +125,51 @@ pub fn create_texture_sampler(device: Arc<Device>) -> Arc<Sampler> {
     )
     .unwrap()
 }
+*/
+
+pub fn create_image_view(
+    device: ash::Device,
+    image: Image,
+    format: Format,
+    aspect_flags: ImageAspectFlags,
+) -> ImageView {
+    let view_info = ImageViewCreateInfo {
+        image,
+        view_type: ImageViewType::TYPE_2D,
+        format,
+        subresource_range: ImageSubresourceRange {
+            aspect_mask: aspect_flags,
+            base_mip_level: 0,
+            level_count: 1,
+            base_array_layer: 0,
+            layer_count: 1,
+        },
+        ..Default::default()
+    };
+
+    return unsafe { device.create_image_view(&view_info, None).unwrap() };
+}
 
 pub fn create_image_views(
-    swap_chain_images: &Vec<Arc<Image>>,
-    image_format: Format,
-) -> Vec<Arc<ImageView>> {
-    let mut image_views: Vec<Arc<ImageView>> = Vec::with_capacity(swap_chain_images.len());
+    device: ash::Device,
+    swap_chain_images: Vec<Image>,
+    swap_chain_image_format: Format,
+) -> Vec<ImageView> {
+    let mut image_views: Vec<ImageView> = Vec::with_capacity(swap_chain_images.len());
 
     for image in swap_chain_images {
-        let create_info = ImageViewCreateInfo {
-            view_type: ImageViewType::Dim2d,
-            format: image_format,
-            component_mapping: ComponentMapping::identity(),
-            subresource_range: ImageSubresourceRange {
-                array_layers: 0..1,
-                aspects: ImageAspects::COLOR,
-                mip_levels: 0..1,
-            },
-            ..Default::default()
-        };
-
-        let image_view = ImageView::new(image.clone(), create_info);
-        image_views.push(image_view.unwrap());
+        image_views.push(create_image_view(
+            device.clone(),
+            image,
+            swap_chain_image_format,
+            ImageAspectFlags::COLOR,
+        ));
     }
 
     image_views
 }
 
+/*
 pub fn create_depth_resources(
     device: BigusDevice,
     allocator: Arc<dyn MemoryAllocator>,
@@ -238,3 +230,4 @@ pub fn create_depth_resources(
 
     (depth_image_view, image_format)
 }
+*/

@@ -3,10 +3,8 @@ use std::{
     usize,
 };
 
-use vulkano::buffer::BufferContents;
-
 #[repr(C)]
-#[derive(BufferContents, Debug)]
+#[derive(Debug)]
 pub struct Matrix<const ROWS: usize, const COLS: usize> {
     pub contents: [[f32; ROWS]; COLS],
 }

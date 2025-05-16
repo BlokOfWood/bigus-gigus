@@ -1,56 +1,48 @@
-use std::sync::Arc;
-
-use vulkano::{
-    device::{physical::PhysicalDevice, Device}, format::Format, image::{view::ImageView, Image, ImageUsage}, render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass}, swapchain::{
-        ColorSpace, CompositeAlpha, PresentMode, Surface, SurfaceCapabilities, SurfaceInfo,
-        Swapchain, SwapchainCreateInfo,
-    }, sync::Sharing
+use ash::khr::surface::Instance as SurfaceInstance;
+use ash::vk::{
+    ColorSpaceKHR, CompositeAlphaFlagsKHR, Extent2D, Format, Image, ImageUsageFlags, PhysicalDevice, PresentModeKHR, SharingMode, SurfaceCapabilitiesKHR, SurfaceFormatKHR, SurfaceKHR, SwapchainCreateInfoKHR, SwapchainKHR, TRUE
 };
-use winit::window::Window;
+use ash::Instance;
 
-use super::{
-    device_and_queues::QueueFamilyIndices, image::create_image_views, vulkan::VulkanRenderer,
-};
+use super::device_and_queues::QueueFamilyIndices;
 
 pub struct SwapChainSupport {
-    pub capabilities: SurfaceCapabilities,
-    pub formats: Vec<(Format, ColorSpace)>,
-    pub present_modes: Vec<PresentMode>,
+    pub capabilities: SurfaceCapabilitiesKHR,
+    pub formats: Vec<SurfaceFormatKHR>,
+    pub present_modes: Vec<PresentModeKHR>,
 }
 
 impl SwapChainSupport {
-    pub fn new(phys_dev: Arc<PhysicalDevice>, surface: Arc<Surface>) -> Self {
-        let capabilities = phys_dev
-            .surface_capabilities(
-                Arc::as_ref(&surface),
-                vulkano::swapchain::SurfaceInfo::default(),
-            )
-            .unwrap();
+    pub fn new(
+        physical_device: PhysicalDevice,
+        surface_instance: SurfaceInstance,
+        surface: SurfaceKHR,
+    ) -> Self {
+        let capabilities = unsafe {
+            surface_instance.get_physical_device_surface_capabilities(physical_device, surface)
+        }
+        .unwrap();
+        let formats = unsafe {
+            surface_instance.get_physical_device_surface_formats(physical_device, surface)
+        }
+        .unwrap();
 
-        let formats = phys_dev
-            .surface_formats(
-                Arc::as_ref(&surface),
-                vulkano::swapchain::SurfaceInfo::default(),
-            )
-            .unwrap();
-
-        let present_modes = phys_dev
-            .surface_present_modes(
-                Arc::as_ref(&surface),
-                vulkano::swapchain::SurfaceInfo::default(),
-            )
-            .unwrap();
+        let present_modes = unsafe {
+            surface_instance.get_physical_device_surface_present_modes(physical_device, surface)
+        }
+        .unwrap();
 
         SwapChainSupport {
             capabilities,
             formats,
-            present_modes: present_modes.collect(),
+            present_modes,
         }
     }
 
-    pub fn choose_surface_format(&self) -> (Format, ColorSpace) {
+    pub fn choose_surface_format(&self) -> SurfaceFormatKHR {
         let optimal_format_result = self.formats.iter().find(|format| {
-            format.0 == Format::B8G8R8A8_SRGB && format.1 == ColorSpace::SrgbNonLinear
+            format.format == Format::B8G8R8A8_SRGB
+                && format.color_space == ColorSpaceKHR::SRGB_NONLINEAR
         });
 
         if let Some(optimal_format) = optimal_format_result {
@@ -60,101 +52,87 @@ impl SwapChainSupport {
         }
     }
 
-    pub fn choose_present_mode(&self) -> PresentMode {
+    pub fn choose_present_mode(&self) -> PresentModeKHR {
         let optimal_present_result = self
             .present_modes
             .iter()
-            .find(|format| **format == PresentMode::Mailbox);
+            .find(|format| **format == PresentModeKHR::MAILBOX);
 
         if let Some(optimal_present) = optimal_present_result {
             optimal_present.clone()
         } else {
-            PresentMode::Fifo
+            PresentModeKHR::FIFO
+        }
+    }
+
+    pub fn choose_swap_extent(&self, window_extent: [u32;2]) -> Extent2D {
+        let capabilities = self.capabilities;
+
+        if capabilities.current_extent.width != u32::MAX {
+            capabilities.current_extent
+        } else  {
+            Extent2D {
+                width: window_extent[0].clamp(capabilities.min_image_extent.width, capabilities.max_image_extent.width),
+                height: window_extent[1].clamp(capabilities.min_image_extent.height, capabilities.max_image_extent.height),
+            }
         }
     }
 }
 
 pub fn create_swap_chain(
-    dev: Arc<Device>,
-    surface: Arc<Surface>,
-    capabilities: SurfaceCapabilities,
-    window: Arc<Window>,
-) -> (Arc<Swapchain>, Vec<Arc<Image>>, Format, [u32; 2]) {
-    let phys_dev = dev.clone().physical_device().clone();
-
-    let swap_chain_support = SwapChainSupport::new(phys_dev.clone(), surface.clone());
+    device: ash::khr::swapchain::Device,
+    physical_device: PhysicalDevice,
+    surface_instance: SurfaceInstance,
+    surface: SurfaceKHR,
+    window_extent: [u32; 2],
+    queue_family_indices: QueueFamilyIndices
+) -> (SwapchainKHR, Vec<Image>, SurfaceFormatKHR, Extent2D) {
+    let swap_chain_support = SwapChainSupport::new(physical_device, surface_instance, surface);
 
     let surface_format = swap_chain_support.choose_surface_format();
     let present_mode = swap_chain_support.choose_present_mode();
-    let swap_extent = choose_swap_extent(capabilities, window.clone());
+    let swap_extent = swap_chain_support.choose_swap_extent(window_extent);
 
-    let max_image_count = swap_chain_support.capabilities.max_image_count.unwrap();
-    let mut image_count = swap_chain_support.capabilities.min_image_count + 1;
+    let min_image_count = swap_chain_support.capabilities.min_image_count;
+    let max_image_count = swap_chain_support.capabilities.max_image_count;
 
-    if max_image_count > 0 && image_count > max_image_count {
-        image_count = max_image_count;
-    };
-
-    let query_family_indicies =
-        QueueFamilyIndices::find_queue_families(phys_dev.clone(), surface.clone());
-    let sharing_mode = if query_family_indicies.graphics_family.unwrap()
-        == query_family_indicies.presentation_family.unwrap()
-    {
-        Sharing::Concurrent(
-            vec![
-                query_family_indicies.graphics_family.unwrap(),
-                query_family_indicies.presentation_family.unwrap(),
-            ]
-            .into(),
-        )
+    let image_count = if max_image_count > 0 && min_image_count + 1 > max_image_count {
+        max_image_count
     } else {
-        Sharing::Exclusive
+        min_image_count + 1
     };
 
-    let create_info = SwapchainCreateInfo {
+    let mut create_info = SwapchainCreateInfoKHR {
+        surface,
         min_image_count: image_count,
-        image_format: surface_format.0,
-        image_color_space: surface_format.1,
+        image_format: surface_format.format,
+        image_color_space: surface_format.color_space,
         image_extent: swap_extent,
         image_array_layers: 1,
-        image_usage: ImageUsage::COLOR_ATTACHMENT,
-        image_sharing: sharing_mode,
+        image_usage: ImageUsageFlags::COLOR_ATTACHMENT,
         pre_transform: swap_chain_support.capabilities.current_transform,
-        composite_alpha: CompositeAlpha::Opaque,
+        composite_alpha: CompositeAlphaFlagsKHR::OPAQUE,
         present_mode,
-        clipped: true,
+        clipped: TRUE,
         ..Default::default()
     };
 
-    let create_results = Swapchain::new(dev, surface.clone(), create_info).unwrap();
-
-    (
-        create_results.0,
-        create_results.1,
-        surface_format.0,
-        swap_extent,
-    )
-}
-
-fn choose_swap_extent(capabilities: SurfaceCapabilities, window: Arc<Window>) -> [u32; 2] {
-    let current_extent = capabilities.current_extent.unwrap();
-    if current_extent[0] != u32::MAX {
-        return capabilities.current_extent.unwrap();
+    if queue_family_indices.graphics_family != queue_family_indices.presentation_family {
+        create_info.image_sharing_mode = SharingMode::CONCURRENT;
+        create_info.queue_family_index_count = 2;
+        create_info.p_queue_family_indices = [queue_family_indices.graphics_family.unwrap(), queue_family_indices.presentation_family.unwrap()].as_ptr();
     } else {
-        let inner_size = window.inner_size();
-        let width = inner_size.width.clamp(
-            capabilities.min_image_extent[0],
-            capabilities.max_image_extent[0],
-        );
-        let height = inner_size.height.clamp(
-            capabilities.min_image_extent[1],
-            capabilities.max_image_extent[1],
-        );
-
-        [width, height]
+        create_info.image_sharing_mode = SharingMode::EXCLUSIVE;
     }
+
+    let swap_chain = unsafe { device.create_swapchain(&create_info, None).unwrap() }; 
+    let swap_chain_images = unsafe { device.get_swapchain_images(swap_chain).unwrap() };
+
+
+    (swap_chain, swap_chain_images, surface_format, swap_extent)
 }
 
+/*
 pub(super) fn create_frame_buffers(
     render_pass: Arc<RenderPass>,
     image_views: &Vec<Arc<ImageView>>,
@@ -213,3 +191,4 @@ impl VulkanRenderer {
         );
     }
 }
+*/

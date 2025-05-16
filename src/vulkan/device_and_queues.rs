@@ -1,98 +1,141 @@
-use std::sync::Arc;
+use std::{collections::HashSet, ffi::CStr, hash::RandomState, sync::Arc};
 
-use vulkano::{
-    device::{
-        physical::PhysicalDevice, Device, DeviceCreateInfo, DeviceExtensions, Features, Queue,
-        QueueCreateInfo, QueueFlags,
-    },
-    format::{Format, FormatFeatures},
-    image::ImageTiling,
-    instance::Instance,
-    swapchain::Surface,
+use ash::{
+    khr::surface::Instance as SurfaceInstance, vk::{
+        DeviceCreateInfo, DeviceQueueCreateInfo, PhysicalDevice, PhysicalDeviceFeatures, Queue,
+        QueueFlags, SurfaceKHR, TRUE,
+    }, Device, Entry, Instance
 };
 
-use super::swap_chain::SwapChainSupport;
+use super::{swap_chain::SwapChainSupport, vulkan::REQUIRED_EXTENSIONS};
 
 #[derive(Clone)]
 pub struct BigusDevice {
-    phys_dev: Arc<PhysicalDevice>,
-    dev: Arc<Device>,
+    pub phys_dev: PhysicalDevice,
+    pub dev: Device,
+    surface_instance: SurfaceInstance,
     queues: QueueFamilies,
 }
 
 impl BigusDevice {
-    pub(super) fn new(vk_instance: Arc<Instance>, vk_surface: Arc<Surface>) -> Self {
-        let phys_dev = vk_instance
-            .enumerate_physical_devices()
-            .unwrap()
-            .find(|device| Self::is_device_suitable(device, vk_surface.clone()))
-            .expect("No physical devices found");
+    pub(super) fn new(entry: &Entry, instance: &Instance, surface: SurfaceKHR) -> Self {
+        let surface_instance = SurfaceInstance::new(entry, instance);
 
-        println!("Using device: {}", phys_dev.properties().device_name);
+        let physical_device = *unsafe {
+            instance
+                .enumerate_physical_devices()
+                .unwrap()
+                .iter()
+                .find(|device| {
+                    Self::is_device_suitable(entry, instance, **device, surface_instance.clone(), surface)
+                })
+                .expect("No physical devices found")
+        };
 
-        let vk_phys_dev = phys_dev.clone();
-        let queue_family_indicies =
-            QueueFamilyIndices::find_queue_families(vk_phys_dev.clone(), vk_surface.clone());
-        let graphics_queue_create_info = QueueCreateInfo {
-            queue_family_index: queue_family_indicies.graphics_family.unwrap(),
-            queues: vec![1f32],
-            ..Default::default()
-        };
-        let presentation_queue_create_info = QueueCreateInfo {
-            queue_family_index: queue_family_indicies.presentation_family.unwrap(),
-            queues: vec![1f32],
-            ..Default::default()
-        };
-        let enabled_features = Features {
-            sampler_anisotropy: true,
-            ..Default::default()
-        };
-        let mut enabled_extensions = DeviceExtensions::default();
-        enabled_extensions.khr_swapchain = true;
-        let device_create_info = DeviceCreateInfo {
-            queue_create_infos: vec![graphics_queue_create_info, presentation_queue_create_info],
-            enabled_features,
-            enabled_extensions,
-            ..Default::default()
-        };
-        let (vk_dev, mut vk_queue) = Device::new(vk_phys_dev.clone(), device_create_info)
-            .expect("Failed to create logical device for phyisical device.");
-        let graphics_queue = vk_queue
-            .find(|queue| {
-                queue.queue_family_index() == queue_family_indicies.graphics_family.unwrap()
-            })
-            .unwrap();
-        let presentation_queue = vk_queue
-            .find(|queue| {
-                queue.queue_family_index() == queue_family_indicies.presentation_family.unwrap()
-            })
-            .unwrap();
-        let (dev, queues) = (
-            vk_dev,
-            QueueFamilies {
-                graphics_queue,
-                _presentation_queue: presentation_queue,
-            },
+        let queue_family_indices = QueueFamilyIndices::find_queue_families(
+            entry,
+            instance,
+            physical_device,
+            surface.clone(),
         );
 
+        println!(
+            "Using device: {}",
+            unsafe { instance.get_physical_device_properties(physical_device) }
+                .device_name_as_c_str()
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
+
+        let unique_queue_families: HashSet<u32, RandomState> = HashSet::from_iter([
+            queue_family_indices.graphics_family.unwrap(),
+            queue_family_indices.presentation_family.unwrap(),
+        ]);
+
+        let queue_create_infos: Vec<DeviceQueueCreateInfo> = unique_queue_families
+            .iter()
+            .map(|queue_family_index| DeviceQueueCreateInfo {
+                queue_family_index: queue_family_index.clone(),
+                queue_count: 1,
+                p_queue_priorities: &1.0,
+                ..Default::default()
+            })
+            .collect();
+
+        let device_features = PhysicalDeviceFeatures {
+            sampler_anisotropy: TRUE,
+            ..Default::default()
+        };
+
+        let required_extensions =
+            REQUIRED_EXTENSIONS.map(|extension| extension.as_ptr() as *const i8);
+
+        let create_info = DeviceCreateInfo {
+            queue_create_info_count: queue_create_infos.len() as u32,
+            p_queue_create_infos: queue_create_infos.as_ptr(),
+            p_enabled_features: &device_features,
+            enabled_extension_count: REQUIRED_EXTENSIONS.len() as u32,
+            pp_enabled_extension_names: required_extensions.as_ptr(),
+            ..Default::default()
+        };
+
+        let device = unsafe {
+            instance
+                .create_device(physical_device, &create_info, None)
+                .unwrap()
+        };
+
+        let queues = QueueFamilies {
+            graphics_queue: unsafe {
+                device.get_device_queue(queue_family_indices.graphics_family.unwrap(), 0)
+            },
+            _presentation_queue: unsafe {
+                device.get_device_queue(queue_family_indices.presentation_family.unwrap(), 0)
+            },
+        };
+
         Self {
-            phys_dev,
-            dev,
+            phys_dev: physical_device,
+            dev: device,
+            surface_instance,
             queues,
         }
     }
 
-    fn is_device_suitable(device: &Arc<PhysicalDevice>, surface: Arc<Surface>) -> bool {
+    fn is_device_suitable(
+        entry: &Entry,
+        instance: &Instance,
+        device: PhysicalDevice,
+        surface_instance: SurfaceInstance,
+        surface: SurfaceKHR,
+    ) -> bool {
         let queue_families =
-            QueueFamilyIndices::find_queue_families(device.clone(), surface.clone());
-        let swap_chain_support = SwapChainSupport::new(device.clone(), surface.clone());
+            QueueFamilyIndices::find_queue_families(entry, instance, device, surface.clone());
+
+        let swap_chain_support =
+            SwapChainSupport::new(device.clone(), surface_instance, surface.clone());
 
         return queue_families.has_required_families()
-            && device.supported_extensions().khr_swapchain
+            && Self::check_device_extension_support(instance, device)
             && !swap_chain_support.formats.is_empty()
             && !swap_chain_support.present_modes.is_empty();
     }
 
+    fn check_device_extension_support(instance: &Instance, device: PhysicalDevice) -> bool {
+        let device_extension_properties =
+            unsafe { instance.enumerate_device_extension_properties(device) }.unwrap();
+        let extension_names: Vec<&CStr> = device_extension_properties
+            .iter()
+            .map(|extension| extension.extension_name_as_c_str().unwrap())
+            .collect();
+
+        return REQUIRED_EXTENSIONS
+            .iter()
+            .all(|extension| extension_names.contains(extension));
+    }
+
+    /*
     pub fn find_supported_format(
         &self,
         candidates: Vec<Format>,
@@ -122,36 +165,48 @@ impl BigusDevice {
 
     pub fn queues(&self) -> QueueFamilies {
         self.queues.clone()
-    }
+    }*/
 }
 
 #[derive(Clone)]
 pub struct QueueFamilies {
-    pub graphics_queue: Arc<Queue>,
-    pub _presentation_queue: Arc<Queue>,
+    pub graphics_queue: Queue,
+    pub _presentation_queue: Queue,
 }
-
 pub struct QueueFamilyIndices {
     pub graphics_family: Option<u32>,
     pub presentation_family: Option<u32>,
 }
 
 impl QueueFamilyIndices {
-    pub fn find_queue_families(device: Arc<PhysicalDevice>, surface: Arc<Surface>) -> Self {
+    pub fn find_queue_families(
+        entry: &Entry,
+        inst: &Instance,
+        device: PhysicalDevice,
+        surface: SurfaceKHR,
+    ) -> Self {
+        let surf_instance = SurfaceInstance::new(entry, inst);
+
         let mut indices = QueueFamilyIndices {
             graphics_family: None,
             presentation_family: None,
         };
 
-        device
-            .queue_family_properties()
+        let device_queue_family_properties =
+            unsafe { inst.get_physical_device_queue_family_properties(device) };
+
+        device_queue_family_properties
             .iter()
             .enumerate()
             .for_each(|(i, queue_family)| {
                 if queue_family.queue_flags.contains(QueueFlags::GRAPHICS) {
                     indices.graphics_family = Some(i as u32);
                 }
-                if device.surface_support(i as u32, &surface).unwrap() {
+                if unsafe {
+                    surf_instance
+                        .get_physical_device_surface_support(device, i as u32, surface)
+                        .unwrap()
+                } {
                     indices.presentation_family = Some(i as u32);
                 }
             });
