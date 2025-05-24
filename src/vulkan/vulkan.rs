@@ -10,7 +10,13 @@ use winit::{
     window::Window,
 };
 
-use crate::vulkan::{device_and_queues::QueueFamilyIndices, image::create_image_views, swap_chain::create_swap_chain, window::{create_surface, enumerate_required_extensions}};
+use crate::vulkan::{
+    command_pool::create_render_pass,
+    device_and_queues::QueueFamilyIndices,
+    image::{create_depth_resources, create_image_views},
+    swap_chain::create_swap_chain,
+    window::{create_surface, enumerate_required_extensions},
+};
 
 use crate::vulkan::device_and_queues::BigusDevice;
 
@@ -129,27 +135,29 @@ impl VulkanRenderer {
 
         let bigus_device = BigusDevice::new(&entry, &inst, surface);
 
-        let queue_family_indices = QueueFamilyIndices::find_queue_families(&entry, &inst, bigus_device.phys_dev, surface);
+        let queue_family_indices =
+            QueueFamilyIndices::find_queue_families(&entry, &inst, bigus_device.phys_dev, surface);
 
         let (swap_chain, images, image_format, image_extent) = create_swap_chain(
             ash::khr::swapchain::Device::new(&inst, &bigus_device.dev),
             bigus_device.phys_dev,
-            ash::khr::surface::Instance::new(&entry, &inst) ,
+            ash::khr::surface::Instance::new(&entry, &inst),
             surface,
             [window.inner_size().width, window.inner_size().height],
-            queue_family_indices
-        );
-        
-        let image_views = create_image_views(bigus_device.dev, images, image_format.format);
-        
-        /*
-        let (depth_image_view, depth_image_format) = create_depth_resources(
-            device.clone(),
-            allocator.clone(),
-            [image_extent[0], image_extent[1], 1],
+            queue_family_indices,
         );
 
-        let render_pass = create_render_pass(device.device(), image_format, depth_image_format);
+        let image_views = create_image_views(&bigus_device, images, image_format.format);
+
+        let (depth_image_view, depth_image_memory, depth_image_format) = create_depth_resources(
+            &inst,
+            &bigus_device,
+            [image_extent.width, image_extent.height],
+        );
+
+        let render_pass = create_render_pass(bigus_device, image_format.format, depth_image_format);
+        /*
+
 
         let descriptor_set_layout = create_descriptor_set_layout(device.device());
 

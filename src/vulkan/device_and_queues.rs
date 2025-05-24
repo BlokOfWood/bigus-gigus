@@ -1,16 +1,20 @@
 use std::{collections::HashSet, ffi::CStr, hash::RandomState, sync::Arc};
 
 use ash::{
-    khr::surface::Instance as SurfaceInstance, vk::{
-        DeviceCreateInfo, DeviceQueueCreateInfo, PhysicalDevice, PhysicalDeviceFeatures, Queue,
-        QueueFlags, SurfaceKHR, TRUE,
-    }, Device, Entry, Instance
+    khr::surface::Instance as SurfaceInstance,
+    vk::{
+        DeviceCreateInfo, DeviceQueueCreateInfo, Format, FormatFeatureFlags, ImageTiling,
+        MemoryPropertyFlags, PhysicalDevice, PhysicalDeviceFeatures, Queue, QueueFlags, SurfaceKHR,
+        TRUE,
+    },
+    Device, Entry, Instance,
 };
 
 use super::{swap_chain::SwapChainSupport, vulkan::REQUIRED_EXTENSIONS};
 
 #[derive(Clone)]
 pub struct BigusDevice {
+    instance: Instance,
     pub phys_dev: PhysicalDevice,
     pub dev: Device,
     surface_instance: SurfaceInstance,
@@ -27,7 +31,13 @@ impl BigusDevice {
                 .unwrap()
                 .iter()
                 .find(|device| {
-                    Self::is_device_suitable(entry, instance, **device, surface_instance.clone(), surface)
+                    Self::is_device_suitable(
+                        entry,
+                        instance,
+                        **device,
+                        surface_instance.clone(),
+                        surface,
+                    )
                 })
                 .expect("No physical devices found")
         };
@@ -96,6 +106,7 @@ impl BigusDevice {
         };
 
         Self {
+            instance: instance.clone(),
             phys_dev: physical_device,
             dev: device,
             surface_instance,
@@ -135,37 +146,48 @@ impl BigusDevice {
             .all(|extension| extension_names.contains(extension));
     }
 
-    /*
     pub fn find_supported_format(
         &self,
+        instance: &Instance,
         candidates: Vec<Format>,
         tiling: ImageTiling,
-        features: FormatFeatures,
+        features: FormatFeatureFlags,
     ) -> Format {
         for candidate in candidates {
-            let format_props = self.phys_dev.format_properties(candidate).unwrap();
+            let format_props =
+                unsafe { instance.get_physical_device_format_properties(self.phys_dev, candidate) };
 
             match tiling {
-                ImageTiling::Linear if format_props.linear_tiling_features.contains(features) => return candidate,
-                ImageTiling::Optimal if format_props.optimal_tiling_features.contains(features) => return candidate,
+                ImageTiling::LINEAR if format_props.linear_tiling_features.contains(features) => {
+                    return candidate
+                }
+                ImageTiling::OPTIMAL if format_props.optimal_tiling_features.contains(features) => {
+                    return candidate
+                }
                 _ => (),
             };
-        };
+        }
 
         panic!("Couldn't find format");
     }
 
-    pub fn device(&self) -> Arc<Device> {
-        self.dev.clone()
-    }
+    pub fn find_memory_type(
+        &self,
+        instance: &Instance,
+        type_filter: u32,
+        properties: MemoryPropertyFlags,
+    ) -> u32 {
+        let phys_dev_mem_props =
+            unsafe { instance.get_physical_device_memory_properties(self.phys_dev) };
 
-    pub fn phys_device(&self) -> Arc<PhysicalDevice> {
-        self.phys_dev.clone()
-    }
+        for (i, mem_type) in phys_dev_mem_props.memory_types.iter().enumerate() {
+            if (type_filter & (1 << i)) != 0 && mem_type.property_flags.contains(properties) {
+                return i as u32;
+            }
+        }
 
-    pub fn queues(&self) -> QueueFamilies {
-        self.queues.clone()
-    }*/
+        panic!("Failed to find suitable memory type!");
+    }
 }
 
 #[derive(Clone)]

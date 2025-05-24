@@ -1,38 +1,12 @@
 use std::sync::Arc;
 
-use vulkano::{
-    buffer::{Buffer, IndexBuffer, Subbuffer},
-    command_buffer::{
-        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
-        AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo, PrimaryAutoCommandBuffer,
-        RenderPassBeginInfo, SubpassBeginInfo, SubpassEndInfo,
-    },
-    descriptor_set::PersistentDescriptorSet,
-    device::Device,
-    format::{ClearValue, Format},
-    image::{ImageLayout, SampleCount},
-    pipeline::{
-        graphics::viewport::{Scissor, Viewport},
-        GraphicsPipeline, Pipeline, PipelineBindPoint,
-    },
-    render_pass::{
-        AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp,
-        Framebuffer, RenderPass, RenderPassCreateInfo, SubpassDependency, SubpassDescription,
-    },
-    swapchain::Surface,
-    sync::{AccessFlags, PipelineStages},
+use ash::vk::{
+    AccessFlags, AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp, Device, Format, ImageLayout, PipelineBindPoint, PipelineStageFlags, RenderPass, RenderPassCreateInfo, SampleCountFlags, SubpassDependency, SubpassDescription, SUBPASS_EXTERNAL
 };
 
-use super::{
-    buffers::INDICES,
-    device_and_queues::{BigusDevice, QueueFamilyIndices},
-};
+use super::device_and_queues::BigusDevice;
 
-pub struct CommandPool {
-    command_buffer_allocator: StandardCommandBufferAllocator,
-    graph_family_index: u32,
-}
-
+/*
 impl CommandPool {
     pub fn new(dev: BigusDevice, surface: Arc<Surface>) -> Self {
         let queue_families =
@@ -158,71 +132,80 @@ impl CommandPool {
         transfer_command_buffer.build().unwrap()
     }
 }
-
+*/
 pub(super) fn create_render_pass(
-    dev: Arc<Device>,
+    device: BigusDevice,
     image_format: Format,
     depth_format: Format,
-) -> Arc<RenderPass> {
+) -> RenderPass {
     let color_attachment = AttachmentDescription {
         format: image_format,
-        samples: SampleCount::Sample1,
-        load_op: AttachmentLoadOp::Clear,
-        store_op: AttachmentStoreOp::Store,
-        stencil_load_op: Some(AttachmentLoadOp::DontCare),
-        stencil_store_op: Some(AttachmentStoreOp::DontCare),
-        initial_layout: ImageLayout::Undefined,
-        final_layout: ImageLayout::PresentSrc,
+        samples: SampleCountFlags::TYPE_1,
+        load_op: AttachmentLoadOp::CLEAR,
+        store_op: AttachmentStoreOp::STORE,
+        stencil_load_op: AttachmentLoadOp::DONT_CARE,
+        stencil_store_op: AttachmentStoreOp::DONT_CARE,
+        initial_layout: ImageLayout::UNDEFINED,
+        final_layout: ImageLayout::PRESENT_SRC_KHR,
         ..Default::default()
     };
 
     let depth_attchment = AttachmentDescription {
         format: depth_format,
-        samples: SampleCount::Sample1,
-        load_op: AttachmentLoadOp::Clear,
-        store_op: AttachmentStoreOp::DontCare,
-        stencil_load_op: Some(AttachmentLoadOp::DontCare),
-        stencil_store_op: Some(AttachmentStoreOp::DontCare),
-        initial_layout: ImageLayout::Undefined,
-        final_layout: ImageLayout::DepthStencilAttachmentOptimal,
-        ..Default::default()
-    };
-
-    let subpass_dependency = SubpassDependency {
-        src_subpass: None,
-        dst_subpass: Some(0),
-        src_stages: PipelineStages::COLOR_ATTACHMENT_OUTPUT | PipelineStages::EARLY_FRAGMENT_TESTS,
-        src_access: AccessFlags::empty(),
-        dst_stages: PipelineStages::COLOR_ATTACHMENT_OUTPUT | PipelineStages::EARLY_FRAGMENT_TESTS,
-        dst_access: AccessFlags::COLOR_ATTACHMENT_WRITE
-            | AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+        samples: SampleCountFlags::TYPE_1,
+        load_op: AttachmentLoadOp::CLEAR,
+        store_op: AttachmentStoreOp::DONT_CARE,
+        stencil_load_op: AttachmentLoadOp::DONT_CARE,
+        stencil_store_op: AttachmentStoreOp::DONT_CARE,
+        initial_layout: ImageLayout::UNDEFINED,
+        final_layout: ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         ..Default::default()
     };
 
     let color_attachment_ref = AttachmentReference {
         attachment: 0,
-        layout: ImageLayout::ColorAttachmentOptimal,
+        layout: ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
         ..Default::default()
     };
 
     let depth_attachment_ref = AttachmentReference {
         attachment: 1,
-        layout: ImageLayout::DepthStencilAttachmentOptimal,
+        layout: ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         ..Default::default()
     };
 
-    let subpass_desc = SubpassDescription {
-        color_attachments: vec![Some(color_attachment_ref)],
-        depth_stencil_attachment: Some(depth_attachment_ref),
+    let subpass = SubpassDescription {
+        pipeline_bind_point: PipelineBindPoint::GRAPHICS,
+        color_attachment_count: 1,
+        p_color_attachments: &color_attachment_ref,
+        p_depth_stencil_attachment: &depth_attachment_ref,
         ..Default::default()
     };
+
+    let subpass_dependency = SubpassDependency {
+        src_subpass: SUBPASS_EXTERNAL,
+        dst_subpass: 0,
+        src_stage_mask: PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+            | PipelineStageFlags::EARLY_FRAGMENT_TESTS,
+        src_access_mask: AccessFlags::empty(),
+        dst_stage_mask: PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+            | PipelineStageFlags::EARLY_FRAGMENT_TESTS,
+        dst_access_mask: AccessFlags::COLOR_ATTACHMENT_WRITE
+            | AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+        ..Default::default()
+    };
+
+    let attachments = vec![color_attachment, depth_attchment];
 
     let render_pass_create_info = RenderPassCreateInfo {
-        attachments: vec![color_attachment, depth_attchment],
-        subpasses: vec![subpass_desc],
-        dependencies: vec![subpass_dependency],
+        attachment_count: attachments.len() as u32,
+        p_attachments: attachments.as_ptr(),
+        subpass_count: 1,
+        p_subpasses: &subpass,
+        dependency_count: 1,
+        p_dependencies: &subpass_dependency,
         ..Default::default()
     };
 
-    RenderPass::new(dev, render_pass_create_info).unwrap()
+    unsafe { device.dev.create_render_pass(&render_pass_create_info, None).unwrap() }
 }

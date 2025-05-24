@@ -1,7 +1,14 @@
-use ash::vk::{
-    Format, Image, ImageAspectFlags, ImageSubresourceRange, ImageView, ImageViewCreateInfo,
-    ImageViewType,
+use ash::{
+    vk::{
+        DeviceMemory, Extent3D, Format, FormatFeatureFlags, Image, ImageAspectFlags,
+        ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType,
+        ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, MemoryAllocateInfo,
+        MemoryPropertyFlags, SampleCountFlags, SharingMode,
+    },
+    Instance,
 };
+
+use super::device_and_queues::BigusDevice;
 
 /*
 pub fn create_texture_image(
@@ -126,9 +133,57 @@ pub fn create_texture_sampler(device: Arc<Device>) -> Arc<Sampler> {
     .unwrap()
 }
 */
+impl BigusDevice {
+    pub fn create_image(
+        &self,
+        instance: &Instance,
+        extent: [u32; 2],
+        format: Format,
+        tiling: ImageTiling,
+        usage: ImageUsageFlags,
+        properties: MemoryPropertyFlags,
+    ) -> (Image, DeviceMemory) {
+        let image_info = ImageCreateInfo {
+            image_type: ImageType::TYPE_2D,
+            extent: Extent3D {
+                width: extent[0],
+                height: extent[1],
+                depth: 1,
+            },
+            mip_levels: 1,
+            array_layers: 1,
+            format,
+            tiling,
+            initial_layout: ImageLayout::UNDEFINED,
+            usage,
+            samples: SampleCountFlags::TYPE_1,
+            sharing_mode: SharingMode::EXCLUSIVE,
+            ..Default::default()
+        };
+
+        let image = unsafe { self.dev.create_image(&image_info, None).unwrap() };
+
+        let mem_requirements = unsafe { self.dev.get_image_memory_requirements(image) };
+
+        let alloc_info = MemoryAllocateInfo {
+            allocation_size: mem_requirements.size,
+            memory_type_index: self.find_memory_type(
+                instance,
+                mem_requirements.memory_type_bits,
+                properties,
+            ),
+            ..Default::default()
+        };
+
+        let device_memory = unsafe { self.dev.allocate_memory(&alloc_info, None).unwrap() };
+
+        unsafe { self.dev.bind_image_memory(image, device_memory, 0).unwrap() }
+
+        (image, device_memory)
+    }
 
 pub fn create_image_view(
-    device: ash::Device,
+    &self,
     image: Image,
     format: Format,
     aspect_flags: ImageAspectFlags,
@@ -147,19 +202,20 @@ pub fn create_image_view(
         ..Default::default()
     };
 
-    return unsafe { device.create_image_view(&view_info, None).unwrap() };
+    return unsafe { self.dev.create_image_view(&view_info, None).unwrap() };
+}
 }
 
+
 pub fn create_image_views(
-    device: ash::Device,
+    device: &BigusDevice,
     swap_chain_images: Vec<Image>,
     swap_chain_image_format: Format,
 ) -> Vec<ImageView> {
     let mut image_views: Vec<ImageView> = Vec::with_capacity(swap_chain_images.len());
 
     for image in swap_chain_images {
-        image_views.push(create_image_view(
-            device.clone(),
+        image_views.push(device.create_image_view(
             image,
             swap_chain_image_format,
             ImageAspectFlags::COLOR,
@@ -169,65 +225,24 @@ pub fn create_image_views(
     image_views
 }
 
-/*
-pub fn create_depth_resources(
-    device: BigusDevice,
-    allocator: Arc<dyn MemoryAllocator>,
-    image_extent: [u32; 3],
-) -> (Arc<ImageView>, Format) {
-    let image_format = device.find_supported_format(
+pub fn create_depth_resources(instance: &Instance, device: &BigusDevice, swap_chain_extent: [u32; 2]) -> (ImageView, DeviceMemory, Format) {
+    let image_format = find_depth_format(instance, &device);
+
+    let (depth_image, depth_image_memory) = device.create_image(instance, swap_chain_extent, image_format, ImageTiling::OPTIMAL, ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT, MemoryPropertyFlags::DEVICE_LOCAL);
+    let depth_image_view = device.create_image_view(depth_image, image_format, ImageAspectFlags::DEPTH);
+
+    (depth_image_view, depth_image_memory, image_format)
+}
+
+fn find_depth_format(instance: &Instance, device: &BigusDevice) -> Format {
+    device.find_supported_format(
+        instance,
         vec![
             Format::D32_SFLOAT,
             Format::D32_SFLOAT_S8_UINT,
             Format::D24_UNORM_S8_UINT,
         ],
-        ImageTiling::Optimal,
-        FormatFeatures::DEPTH_STENCIL_ATTACHMENT,
-    );
-
-    //let has_stencil_component =
-    //    image_format == Format::D32_SFLOAT_S8_UINT || image_format == Format::D24_UNORM_S8_UINT;
-
-    let depth_image = Image::new(
-        allocator.clone(),
-        ImageCreateInfo {
-            image_type: ImageType::Dim2d,
-            extent: image_extent,
-            mip_levels: 1,
-            array_layers: 1,
-            format: image_format,
-            tiling: ImageTiling::Optimal,
-            initial_layout: ImageLayout::Undefined,
-            usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT,
-            sharing: Sharing::Exclusive,
-            samples: SampleCount::Sample1,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter {
-                required_flags: MemoryPropertyFlags::DEVICE_LOCAL,
-                ..Default::default()
-            },
-            ..Default::default()
-        },
+        ImageTiling::OPTIMAL,
+        FormatFeatureFlags::DEPTH_STENCIL_ATTACHMENT,
     )
-    .unwrap();
-
-    let depth_image_view = ImageView::new(
-        depth_image.clone(),
-        ImageViewCreateInfo {
-            view_type: ImageViewType::Dim2d,
-            format: image_format,
-            component_mapping: ComponentMapping::identity(),
-            subresource_range: ImageSubresourceRange {
-                array_layers: 0..1,
-                aspects: ImageAspects::DEPTH,
-                mip_levels: 0..1,
-            },
-            ..Default::default()
-        },
-    ).unwrap();
-
-    (depth_image_view, image_format)
 }
-*/
