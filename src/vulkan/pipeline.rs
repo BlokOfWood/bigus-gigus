@@ -1,58 +1,39 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{ptr::null, sync::Arc};
 
-use vulkano::{
-    buffer::Subbuffer,
-    descriptor_set::{
-        allocator::StandardDescriptorSetAllocator,
-        layout::{
-            DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo,
-            DescriptorType,
-        },
-        PersistentDescriptorSet, WriteDescriptorSet,
-    },
-    device::Device,
-    image::{sampler::Sampler, view::ImageView, SampleCount},
-    pipeline::{
-        graphics::{
-            color_blend::{ColorBlendAttachmentState, ColorBlendState, ColorComponents},
-            depth_stencil::{CompareOp, DepthState, DepthStencilState},
-            input_assembly::{InputAssemblyState, PrimitiveTopology},
-            multisample::MultisampleState,
-            rasterization::{CullMode, FrontFace, PolygonMode, RasterizationState},
-            subpass::PipelineSubpassType,
-            vertex_input::VertexInputState,
-            viewport::{Scissor, Viewport, ViewportState},
-            GraphicsPipelineCreateInfo,
-        },
-        layout::PipelineLayoutCreateInfo,
-        DynamicState, GraphicsPipeline, PipelineCreateFlags, PipelineLayout,
-        PipelineShaderStageCreateInfo,
-    },
-    render_pass::{RenderPass, Subpass},
-    shader::{EntryPoint, ShaderStages},
-};
+use ash::vk::{DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, ShaderStageFlags};
 
-use super::{buffers::VertexBuffer, shader::Shaders, ubo::UniformBufferObject};
+use super::device_and_queues::BigusDevice;
 
-pub(super) fn create_descriptor_set_layout(device: Arc<Device>) -> Arc<DescriptorSetLayout> {
+pub(super) fn create_descriptor_set_layout(device: &BigusDevice) -> DescriptorSetLayout {
     let ubo_layout_binding = DescriptorSetLayoutBinding {
-        stages: ShaderStages::VERTEX,
-        ..DescriptorSetLayoutBinding::descriptor_type(DescriptorType::UniformBuffer)
-    };
-
-    let sampler_layout_binding = DescriptorSetLayoutBinding {
-        stages: ShaderStages::FRAGMENT,
-        ..DescriptorSetLayoutBinding::descriptor_type(DescriptorType::CombinedImageSampler)
-    };
-
-    let layout_create_info = DescriptorSetLayoutCreateInfo {
-        bindings: BTreeMap::from([(0, ubo_layout_binding), (1, sampler_layout_binding)]),
+        binding: 0,
+        descriptor_count: 1,
+        descriptor_type: DescriptorType::UNIFORM_BUFFER,
+        p_immutable_samplers: null(),
+        stage_flags: ShaderStageFlags::VERTEX,
         ..Default::default()
     };
 
-    return DescriptorSetLayout::new(device, layout_create_info).unwrap();
-}
+    let sampler_layout_binding = DescriptorSetLayoutBinding { 
+        binding: 1,
+        descriptor_count: 1,
+        descriptor_type: DescriptorType::COMBINED_IMAGE_SAMPLER,
+        p_immutable_samplers: null(),
+        stage_flags: ShaderStageFlags::FRAGMENT,
+        ..Default::default()
+    };
 
+    let bindings = [ubo_layout_binding, sampler_layout_binding];
+
+    let layout_create_info = DescriptorSetLayoutCreateInfo {
+         binding_count: bindings.len() as u32,
+         p_bindings: bindings.as_ptr(),
+        ..Default::default()
+    };
+
+    return unsafe { device.dev.create_descriptor_set_layout(&layout_create_info, None).unwrap() };
+}
+/* 
 pub(super) fn create_descriptor_sets(
     layout: Arc<DescriptorSetLayout>,
     uniform_buffers: &[Subbuffer<UniformBufferObject>], // Pass in the buffersr_sets(
@@ -191,3 +172,4 @@ pub(super) fn create_graphics_pipeline(
         GraphicsPipeline::new(dev.clone(), None, graphics_pipeline_create_info).unwrap(),
     )
 }
+*/

@@ -134,7 +134,7 @@ impl CommandPool {
 }
 */
 pub(super) fn create_render_pass(
-    device: BigusDevice,
+    device: &BigusDevice,
     image_format: Format,
     depth_format: Format,
 ) -> RenderPass {

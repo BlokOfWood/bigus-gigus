@@ -11,11 +11,7 @@ use winit::{
 };
 
 use crate::vulkan::{
-    command_pool::create_render_pass,
-    device_and_queues::QueueFamilyIndices,
-    image::{create_depth_resources, create_image_views},
-    swap_chain::create_swap_chain,
-    window::{create_surface, enumerate_required_extensions},
+    command_pool::create_render_pass, device_and_queues::QueueFamilyIndices, image::{create_depth_resources, create_image_views}, pipeline::create_descriptor_set_layout, swap_chain::create_swap_chain, window::{create_surface, enumerate_required_extensions}
 };
 
 use crate::vulkan::device_and_queues::BigusDevice;
@@ -155,12 +151,12 @@ impl VulkanRenderer {
             [image_extent.width, image_extent.height],
         );
 
-        let render_pass = create_render_pass(bigus_device, image_format.format, depth_image_format);
+        let render_pass = create_render_pass(&bigus_device, image_format.format, depth_image_format);
+        
+        
+        let descriptor_set_layout = create_descriptor_set_layout(&bigus_device);
+        
         /*
-
-
-        let descriptor_set_layout = create_descriptor_set_layout(device.device());
-
         let (_, graphics_pipeline) = create_graphics_pipeline(
             device.device(),
             render_pass.clone(),
