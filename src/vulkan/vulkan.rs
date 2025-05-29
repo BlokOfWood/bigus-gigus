@@ -11,7 +11,12 @@ use winit::{
 };
 
 use crate::vulkan::{
-    command_pool::create_render_pass, device_and_queues::QueueFamilyIndices, image::{create_depth_resources, create_image_views}, pipeline::create_descriptor_set_layout, swap_chain::create_swap_chain, window::{create_surface, enumerate_required_extensions}
+    command_pool::{create_command_pool, create_render_pass},
+    device_and_queues::QueueFamilyIndices,
+    image::{create_depth_resources, create_image_views},
+    pipeline::{create_descriptor_set_layout, create_graphics_pipeline},
+    swap_chain::create_swap_chain,
+    window::{create_surface, enumerate_required_extensions},
 };
 
 use crate::vulkan::device_and_queues::BigusDevice;
@@ -140,7 +145,7 @@ impl VulkanRenderer {
             ash::khr::surface::Instance::new(&entry, &inst),
             surface,
             [window.inner_size().width, window.inner_size().height],
-            queue_family_indices,
+            &queue_family_indices,
         );
 
         let image_views = create_image_views(&bigus_device, images, image_format.format);
@@ -151,17 +156,20 @@ impl VulkanRenderer {
             [image_extent.width, image_extent.height],
         );
 
-        let render_pass = create_render_pass(&bigus_device, image_format.format, depth_image_format);
-        
-        
+        let render_pass =
+            create_render_pass(&bigus_device, image_format.format, depth_image_format);
+
         let descriptor_set_layout = create_descriptor_set_layout(&bigus_device);
-        
-        /*
-        let (_, graphics_pipeline) = create_graphics_pipeline(
-            device.device(),
-            render_pass.clone(),
-            image_extent,
-            vec![descriptor_set_layout.clone()],
+
+        let graphics_pipeline =
+            create_graphics_pipeline(&bigus_device, render_pass, vec![descriptor_set_layout]);
+
+        let command_pool = create_command_pool(&bigus_device, &queue_family_indices);
+
+        let depth_resources = create_depth_resources(
+            &inst,
+            &bigus_device,
+            [image_extent.width, image_extent.height],
         );
 
         let frame_buffers = create_frame_buffers(
@@ -170,8 +178,8 @@ impl VulkanRenderer {
             image_extent,
             depth_image_view.clone(),
         );
+        /*
 
-        let command_pool = CommandPool::new(device.clone(), surface.clone());
 
         let queues = device.queues();
 

@@ -1,16 +1,6 @@
 use std::sync::Arc;
 
 use ash::vk::{Format, VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate};
-use vulkano::{
-    buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
-    device::{Device, Queue},
-    memory::{
-        allocator::{AllocationCreateInfo, DeviceLayout, MemoryAllocator, MemoryTypeFilter},
-        DeviceAlignment, MemoryPropertyFlags,
-    },
-    sync::{self, GpuFuture, Sharing},
-    Validated, VulkanError,
-};
 
 use crate::math::{
     graphics_ops::{look_at, perspective},
@@ -19,13 +9,10 @@ use crate::math::{
 };
 
 use super::{
-    command_pool::CommandPool,
-    ubo::UniformBufferObject,
     vulkan::VulkanRenderer,
 };
 use std::mem::offset_of;
 
-#[derive(BufferContents)]
 #[repr(C)]
 pub struct Vertex {
     pos: [f32; 3],
@@ -33,7 +20,6 @@ pub struct Vertex {
     tex_coord: [f32; 2],
 }
 
-#[derive(BufferContents)]
 #[repr(transparent)]
 pub struct VertexData {
     pub vertices: [Vertex; 8],
@@ -130,7 +116,7 @@ impl VertexBuffer {
         ]
     }
 }
-
+/* 
 pub(crate) fn create_vertex_buffer(
     dev: Arc<Device>,
     graphics_queue: Arc<Queue>,
@@ -308,3 +294,4 @@ impl VulkanRenderer {
         uniform_buffer.proj = perspective(60.0, aspect_ratio, 0.1, 100.0);
     }
 }
+*/

@@ -5,6 +5,6 @@ pub mod swap_chain;
 pub mod image;
 pub mod command_pool;
 pub mod pipeline;
-/*pub mod shader;
+pub mod shader;
+pub mod buffers;
 pub mod ubo;
-pub mod buffers;*/

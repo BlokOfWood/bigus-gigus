@@ -1,10 +1,18 @@
-use std::sync::Arc;
-
 use ash::vk::{
-    AccessFlags, AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp, Device, Format, ImageLayout, PipelineBindPoint, PipelineStageFlags, RenderPass, RenderPassCreateInfo, SampleCountFlags, SubpassDependency, SubpassDescription, SUBPASS_EXTERNAL
+    AccessFlags, AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, Device, Format, ImageLayout, PipelineBindPoint, PipelineStageFlags, RenderPass, RenderPassCreateInfo, SampleCountFlags, SubpassDependency, SubpassDescription, SUBPASS_EXTERNAL
 };
 
-use super::device_and_queues::BigusDevice;
+use super::device_and_queues::{BigusDevice, QueueFamilyIndices};
+
+pub(super) fn create_command_pool(device: &BigusDevice, queue_family_indices: &QueueFamilyIndices) -> CommandPool {
+    let pool_info = CommandPoolCreateInfo{
+        flags: CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
+        queue_family_index: queue_family_indices.graphics_family.unwrap() as u32,
+        ..Default::default()
+    };
+
+    unsafe { device.dev.create_command_pool(&pool_info, None).unwrap() }
+}
 
 /*
 impl CommandPool {

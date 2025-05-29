@@ -1,8 +1,14 @@
 use std::{ptr::null, sync::Arc};
 
-use ash::vk::{DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, ShaderStageFlags};
+use ash::vk::{
+    ColorComponentFlags, CompareOp, CullModeFlags, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, DynamicState, FrontFace, GraphicsPipelineCreateInfo, LogicOp, Pipeline, PipelineCache, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, RenderPass, SampleCountFlags, ShaderStageFlags, FALSE, TRUE
+};
 
-use super::device_and_queues::BigusDevice;
+use super::{
+    buffers::{Vertex, VertexBuffer},
+    device_and_queues::BigusDevice,
+    shader::Shaders,
+};
 
 pub(super) fn create_descriptor_set_layout(device: &BigusDevice) -> DescriptorSetLayout {
     let ubo_layout_binding = DescriptorSetLayoutBinding {
@@ -14,7 +20,7 @@ pub(super) fn create_descriptor_set_layout(device: &BigusDevice) -> DescriptorSe
         ..Default::default()
     };
 
-    let sampler_layout_binding = DescriptorSetLayoutBinding { 
+    let sampler_layout_binding = DescriptorSetLayoutBinding {
         binding: 1,
         descriptor_count: 1,
         descriptor_type: DescriptorType::COMBINED_IMAGE_SAMPLER,
@@ -26,14 +32,19 @@ pub(super) fn create_descriptor_set_layout(device: &BigusDevice) -> DescriptorSe
     let bindings = [ubo_layout_binding, sampler_layout_binding];
 
     let layout_create_info = DescriptorSetLayoutCreateInfo {
-         binding_count: bindings.len() as u32,
-         p_bindings: bindings.as_ptr(),
+        binding_count: bindings.len() as u32,
+        p_bindings: bindings.as_ptr(),
         ..Default::default()
     };
 
-    return unsafe { device.dev.create_descriptor_set_layout(&layout_create_info, None).unwrap() };
+    return unsafe {
+        device
+            .dev
+            .create_descriptor_set_layout(&layout_create_info, None)
+            .unwrap()
+    };
 }
-/* 
+/*
 pub(super) fn create_descriptor_sets(
     layout: Arc<DescriptorSetLayout>,
     uniform_buffers: &[Subbuffer<UniformBufferObject>], // Pass in the buffersr_sets(
@@ -62,114 +73,133 @@ pub(super) fn create_descriptor_sets(
 
     descriptor_sets
 }
-
+*/
 pub(super) fn create_graphics_pipeline(
-    dev: Arc<Device>,
-    render_pass: Arc<RenderPass>,
-    image_extent: [u32; 2],
-    descriptor_set_layouts: Vec<Arc<DescriptorSetLayout>>,
-) -> (Arc<PipelineLayout>, Arc<GraphicsPipeline>) {
-    let shaders = Shaders::new(dev.clone(), "src/shaders/vert.spv", "src/shaders/frag.spv");
+    device: &BigusDevice,
+    render_pass: RenderPass,
+    descriptor_set_layouts: Vec<DescriptorSetLayout>,
+) -> Pipeline {
+    let shaders = Shaders::new(&device, "src/shaders/vert.spv", "src/shaders/frag.spv");
 
-    let vert_entry_point: EntryPoint = shaders.vert_shader.single_entry_point().unwrap();
-    let vert_stage_info = PipelineShaderStageCreateInfo::new(vert_entry_point);
-    let frag_entry_point: EntryPoint = shaders.frag_shader.single_entry_point().unwrap();
-    let frag_stage_info = PipelineShaderStageCreateInfo::new(frag_entry_point);
-
-    let vertex_input_state = VertexInputState::new()
-        .binding(0, VertexBuffer::get_binding_description())
-        .attributes(VertexBuffer::get_attribute_descriptions());
-
-    let input_assembly_state = InputAssemblyState {
-        topology: PrimitiveTopology::TriangleList,
-        primitive_restart_enable: false,
-        ..Default::default()
-    };
-    let viewport = Viewport {
-        offset: [0f32, 0f32],
-        extent: [image_extent[0] as f32, image_extent[1] as f32],
-        depth_range: 0f32..=1f32,
-    };
-    let scissor = Scissor {
-        offset: [0, 0],
-        extent: image_extent,
-    };
-    let viewport_state = ViewportState {
-        viewports: [viewport].into(),
-        scissors: [scissor].into(),
+    let vert_shader_stage_info = PipelineShaderStageCreateInfo {
+        stage: ShaderStageFlags::VERTEX,
+        module: shaders.vert_shader,
+        p_name: "main".as_ptr() as *const i8,
         ..Default::default()
     };
 
-    let rasterization_state = RasterizationState {
-        depth_clamp_enable: false,
-        rasterizer_discard_enable: false,
-        polygon_mode: PolygonMode::Fill,
-        line_width: 1.0f32,
-        cull_mode: CullMode::Back,
-        front_face: FrontFace::CounterClockwise,
-        depth_bias: None,
+    let frag_shader_stage_info = PipelineShaderStageCreateInfo {
+        stage: ShaderStageFlags::FRAGMENT,
+        module: shaders.frag_shader,
+        p_name: "main".as_ptr() as *const i8,
         ..Default::default()
     };
 
-    let multisample_state = MultisampleState {
-        sample_shading: None,
-        rasterization_samples: SampleCount::Sample1,
+    let binding_description = VertexBuffer::get_binding_description();
+    let attribute_description =
+        VertexBuffer::get_attribute_descriptions().map(|description| description.1);
+
+    let shaderStages = [vert_shader_stage_info, frag_shader_stage_info];
+
+    let vertex_input_info = PipelineVertexInputStateCreateInfo {
+        vertex_binding_description_count: 1,
+        vertex_attribute_description_count: attribute_description.len() as u32,
+        p_vertex_binding_descriptions: &binding_description,
+        p_vertex_attribute_descriptions: attribute_description.as_ptr(),
         ..Default::default()
     };
 
-    let color_blend_attachment = ColorBlendAttachmentState {
-        color_write_enable: true,
-        color_write_mask: ColorComponents::all(),
-        blend: None,
+    let input_assembly = PipelineInputAssemblyStateCreateInfo {
+        topology: PrimitiveTopology::TRIANGLE_LIST,
+        primitive_restart_enable: FALSE,
         ..Default::default()
     };
 
-    let color_blending = ColorBlendState {
-        logic_op: None,
-        attachments: vec![color_blend_attachment],
+    let viewport_state = PipelineViewportStateCreateInfo {
+        viewport_count: 1,
+        scissor_count: 1,
         ..Default::default()
     };
 
-    let depth_stencil_state = DepthStencilState {
-        depth: Some(DepthState {
-            write_enable: true,
-            compare_op: CompareOp::Less,
-        }),
-        depth_bounds: None,
-        stencil: None,
+    let rasterizer = PipelineRasterizationStateCreateInfo {
+        depth_clamp_enable: FALSE,
+        rasterizer_discard_enable: FALSE,
+        polygon_mode: PolygonMode::FILL,
+        line_width: 1.0,
+        cull_mode: CullModeFlags::BACK,
+        front_face: FrontFace::COUNTER_CLOCKWISE,
+        depth_bias_enable: FALSE,
+        ..Default::default()
+    };
+
+    let multisampling = PipelineMultisampleStateCreateInfo {
+        sample_shading_enable: FALSE,
+        rasterization_samples: SampleCountFlags::TYPE_1,
+        ..Default::default()
+    };
+
+    let depth_stencil = PipelineDepthStencilStateCreateInfo {
+        depth_test_enable: TRUE,
+        depth_write_enable: TRUE,
+        depth_compare_op: CompareOp::LESS,
+        depth_bounds_test_enable: FALSE,
+        stencil_test_enable: FALSE,
+        ..Default::default()
+    };
+
+    let color_blend_attachment = PipelineColorBlendAttachmentState {
+        color_write_mask: ColorComponentFlags::RGBA,
+        blend_enable: FALSE,
+        ..Default::default()
+    };
+
+    let color_blending = PipelineColorBlendStateCreateInfo {
+        logic_op_enable: FALSE,
+        logic_op: LogicOp::COPY,
+        attachment_count: 1,
+        p_attachments: &color_blend_attachment,
+        blend_constants: [0.0, 0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+
+    let dynamic_states = [DynamicState::VIEWPORT, DynamicState::SCISSOR];
+
+    let dynamic_state = PipelineDynamicStateCreateInfo{
+        dynamic_state_count: dynamic_states.len() as u32,
+        p_dynamic_states: dynamic_states.as_ptr(),
         ..Default::default()
     };
 
     let pipeline_layout_info = PipelineLayoutCreateInfo {
-        set_layouts: descriptor_set_layouts,
+        set_layout_count: 1,
+        p_set_layouts: descriptor_set_layouts.as_ptr(),
         ..Default::default()
     };
 
-    let pipeline_layout = PipelineLayout::new(dev.clone(), pipeline_layout_info).unwrap();
+    let pipeline_layout = unsafe { device.dev.create_pipeline_layout(&pipeline_layout_info, None).unwrap() };
 
-    let subpass = Subpass::from(render_pass, 0).unwrap();
+    let pipeline_info = GraphicsPipelineCreateInfo {
+        stage_count: 2,
+        p_stages: shaderStages.as_ptr(),
+        p_vertex_input_state: &vertex_input_info,
+        p_input_assembly_state: &input_assembly,
+        p_viewport_state: &viewport_state,
+        p_rasterization_state: &rasterizer,
+        p_multisample_state: &multisampling,
+        p_depth_stencil_state: &depth_stencil,
+        p_dynamic_state: &dynamic_state,
+        layout: pipeline_layout,
+        render_pass,
+        subpass: 0,
+        base_pipeline_handle: Pipeline::null(),
+        ..Default::default()
+    };
 
-    let mut graphics_pipeline_create_info =
-        GraphicsPipelineCreateInfo::layout(pipeline_layout.clone());
-    graphics_pipeline_create_info.stages = vec![vert_stage_info, frag_stage_info].into();
-    graphics_pipeline_create_info.vertex_input_state = Some(vertex_input_state);
-    graphics_pipeline_create_info.input_assembly_state = Some(input_assembly_state);
-    graphics_pipeline_create_info.viewport_state = Some(viewport_state);
-    graphics_pipeline_create_info.rasterization_state = Some(rasterization_state);
-    graphics_pipeline_create_info.multisample_state = Some(multisample_state);
-    graphics_pipeline_create_info.depth_stencil_state = Some(depth_stencil_state);
-    graphics_pipeline_create_info.color_blend_state = Some(color_blending);
-    graphics_pipeline_create_info.dynamic_state =
-        ahash::HashSet::from_iter([DynamicState::Viewport, DynamicState::Scissor]);
-    graphics_pipeline_create_info.subpass = Some(PipelineSubpassType::BeginRenderPass(subpass));
-    graphics_pipeline_create_info.base_pipeline = None;
-    graphics_pipeline_create_info.tessellation_state = None;
-    graphics_pipeline_create_info.discard_rectangle_state = None;
-    graphics_pipeline_create_info.flags = PipelineCreateFlags::empty();
+    let graphics_pipeline = unsafe { device.dev.create_graphics_pipelines(PipelineCache::null(), &[pipeline_info], None).unwrap()[0] }
 
-    (
-        pipeline_layout,
-        GraphicsPipeline::new(dev.clone(), None, graphics_pipeline_create_info).unwrap(),
-    )
+    unsafe { device.dev.destroy_shader_module(shaders.frag_shader, None) };
+    unsafe { device.dev.destroy_shader_module(shaders.vert_shader, None) };
+
+    graphics_pipeline
+
 }
-*/

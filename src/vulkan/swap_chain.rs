@@ -85,7 +85,7 @@ pub fn create_swap_chain(
     surface_instance: SurfaceInstance,
     surface: SurfaceKHR,
     window_extent: [u32; 2],
-    queue_family_indices: QueueFamilyIndices
+    queue_family_indices: &QueueFamilyIndices
 ) -> (SwapchainKHR, Vec<Image>, SurfaceFormatKHR, Extent2D) {
     let swap_chain_support = SwapChainSupport::new(physical_device, surface_instance, surface);
 
