@@ -195,7 +195,7 @@ pub(super) fn create_graphics_pipeline(
         ..Default::default()
     };
 
-    let graphics_pipeline = unsafe { device.dev.create_graphics_pipelines(PipelineCache::null(), &[pipeline_info], None).unwrap()[0] }
+    let graphics_pipeline = unsafe { device.dev.create_graphics_pipelines(PipelineCache::null(), &[pipeline_info], None).unwrap()[0] };
 
     unsafe { device.dev.destroy_shader_module(shaders.frag_shader, None) };
     unsafe { device.dev.destroy_shader_module(shaders.vert_shader, None) };

@@ -15,7 +15,7 @@ use crate::vulkan::{
     device_and_queues::QueueFamilyIndices,
     image::{create_depth_resources, create_image_views},
     pipeline::{create_descriptor_set_layout, create_graphics_pipeline},
-    swap_chain::create_swap_chain,
+    swap_chain::{create_frame_buffers, create_swap_chain},
     window::{create_surface, enumerate_required_extensions},
 };
 
@@ -173,14 +173,13 @@ impl VulkanRenderer {
         );
 
         let frame_buffers = create_frame_buffers(
+            &bigus_device,
             render_pass.clone(),
-            &image_views,
-            image_extent,
+            image_views,
             depth_image_view.clone(),
+            image_extent,
         );
         /*
-
-
         let queues = device.queues();
 
         let vertex_buffer = create_vertex_buffer(

@@ -5,6 +5,8 @@ use std::{
 
 use ash::vk::{ShaderModule, ShaderModuleCreateInfo};
 
+use crate::vulkan::shader;
+
 use super::device_and_queues::BigusDevice;
 
 pub struct Shaders {
@@ -27,8 +29,10 @@ impl Shaders {
             .map(|chunk| u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
             .collect();
 
+        println!("code_size: {}", shader_code.len());
+
         let create_info = ShaderModuleCreateInfo {
-            code_size: shader_code.len(),
+            code_size: shader_code.len() * 4,
             p_code: shader_code.as_ptr(),
             ..Default::default()
         };

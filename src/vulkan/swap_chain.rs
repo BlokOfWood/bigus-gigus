@@ -1,10 +1,13 @@
 use ash::khr::surface::Instance as SurfaceInstance;
 use ash::vk::{
-    ColorSpaceKHR, CompositeAlphaFlagsKHR, Extent2D, Format, Image, ImageUsageFlags, PhysicalDevice, PresentModeKHR, SharingMode, SurfaceCapabilitiesKHR, SurfaceFormatKHR, SurfaceKHR, SwapchainCreateInfoKHR, SwapchainKHR, TRUE
+    self, ColorSpaceKHR, CompositeAlphaFlagsKHR, Extent2D, Format, Framebuffer,
+    FramebufferCreateInfo, Image, ImageUsageFlags, ImageView, PhysicalDevice, PresentModeKHR,
+    RenderPass, SharingMode, SurfaceCapabilitiesKHR, SurfaceFormatKHR, SurfaceKHR,
+    SwapchainCreateInfoKHR, SwapchainKHR, TRUE,
 };
 use ash::Instance;
 
-use super::device_and_queues::QueueFamilyIndices;
+use super::device_and_queues::{BigusDevice, QueueFamilyIndices};
 
 pub struct SwapChainSupport {
     pub capabilities: SurfaceCapabilitiesKHR,
@@ -65,15 +68,21 @@ impl SwapChainSupport {
         }
     }
 
-    pub fn choose_swap_extent(&self, window_extent: [u32;2]) -> Extent2D {
+    pub fn choose_swap_extent(&self, window_extent: [u32; 2]) -> Extent2D {
         let capabilities = self.capabilities;
 
         if capabilities.current_extent.width != u32::MAX {
             capabilities.current_extent
-        } else  {
+        } else {
             Extent2D {
-                width: window_extent[0].clamp(capabilities.min_image_extent.width, capabilities.max_image_extent.width),
-                height: window_extent[1].clamp(capabilities.min_image_extent.height, capabilities.max_image_extent.height),
+                width: window_extent[0].clamp(
+                    capabilities.min_image_extent.width,
+                    capabilities.max_image_extent.width,
+                ),
+                height: window_extent[1].clamp(
+                    capabilities.min_image_extent.height,
+                    capabilities.max_image_extent.height,
+                ),
             }
         }
     }
@@ -85,7 +94,7 @@ pub fn create_swap_chain(
     surface_instance: SurfaceInstance,
     surface: SurfaceKHR,
     window_extent: [u32; 2],
-    queue_family_indices: &QueueFamilyIndices
+    queue_family_indices: &QueueFamilyIndices,
 ) -> (SwapchainKHR, Vec<Image>, SurfaceFormatKHR, Extent2D) {
     let swap_chain_support = SwapChainSupport::new(physical_device, surface_instance, surface);
 
@@ -120,53 +129,68 @@ pub fn create_swap_chain(
     if queue_family_indices.graphics_family != queue_family_indices.presentation_family {
         create_info.image_sharing_mode = SharingMode::CONCURRENT;
         create_info.queue_family_index_count = 2;
-        create_info.p_queue_family_indices = [queue_family_indices.graphics_family.unwrap(), queue_family_indices.presentation_family.unwrap()].as_ptr();
+        create_info.p_queue_family_indices = [
+            queue_family_indices.graphics_family.unwrap(),
+            queue_family_indices.presentation_family.unwrap(),
+        ]
+        .as_ptr();
     } else {
         create_info.image_sharing_mode = SharingMode::EXCLUSIVE;
     }
 
-    let swap_chain = unsafe { device.create_swapchain(&create_info, None).unwrap() }; 
+    let swap_chain = unsafe { device.create_swapchain(&create_info, None).unwrap() };
     let swap_chain_images = unsafe { device.get_swapchain_images(swap_chain).unwrap() };
-
 
     (swap_chain, swap_chain_images, surface_format, swap_extent)
 }
 
-/*
 pub(super) fn create_frame_buffers(
-    render_pass: Arc<RenderPass>,
-    image_views: &Vec<Arc<ImageView>>,
-    image_extent: [u32; 2],
-    depth_image_view: Arc<ImageView>,
-) -> Vec<Arc<Framebuffer>> {
-    image_views
-        .iter()
-        .map(|image_view| {
-            let framebuffer_create_info = FramebufferCreateInfo {
-                attachments: vec![image_view.clone(), depth_image_view.clone()],
-                extent: image_extent,
-                layers: 1,
-                ..Default::default()
-            };
+    dev: &BigusDevice,
+    render_pass: RenderPass,
+    swap_chain_image_views: Vec<ImageView>,
+    depth_image_view: ImageView,
+    swap_chain_extent: Extent2D,
+) -> Vec<Framebuffer> {
+    let mut frame_buffers = Vec::new();
 
-            Framebuffer::new(render_pass.clone(), framebuffer_create_info).unwrap()
-        })
-        .collect()
+    for i in 0..swap_chain_image_views.len() {
+        let attachments = [swap_chain_image_views[i], depth_image_view];
+
+        let frame_buffer = unsafe {
+            dev.dev.create_framebuffer(
+                &FramebufferCreateInfo {
+                    render_pass,
+                    attachment_count: attachments.len() as u32,
+                    p_attachments: attachments.as_ptr(),
+                    width: swap_chain_extent.width,
+                    height: swap_chain_extent.height,
+                    layers: 1,
+                    ..Default::default()
+                },
+                None,
+            )
+        };
+
+        frame_buffers.push(frame_buffer.unwrap());
+    }
+
+    frame_buffers
 }
 
-impl VulkanRenderer {
-    pub fn recreate_swap_chain(&mut self, window: Arc<Window>) {
-        let surface = Surface::from_window(self.inst.clone(), window.clone())
-            .expect("Failed to create surface from window.");
+/*
+                impl VulkanRenderer {
+                    pub fn recreate_swap_chain(&mut self, window: Arc<Window>) {
+                        let surface = Surface::from_window(self.inst.clone(), window.clone())
+                        .expect("Failed to create surface from window.");
 
-        self.surface = surface.clone();
+                    self.surface = surface.clone();
 
-        let swap_extent = choose_swap_extent(
-            self.device
+                    let swap_extent = choose_swap_extent(
+                        self.device
                 .phys_device()
                 .surface_capabilities(&surface, SurfaceInfo::default())
                 .unwrap(),
-            window.clone(),
+                window.clone(),
         );
 
         let (swap_chain, images) = self
