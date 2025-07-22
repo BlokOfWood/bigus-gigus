@@ -186,6 +186,7 @@ pub(super) fn create_graphics_pipeline(
         p_viewport_state: &viewport_state,
         p_rasterization_state: &rasterizer,
         p_multisample_state: &multisampling,
+        p_color_blend_state: &color_blending,
         p_depth_stencil_state: &depth_stencil,
         p_dynamic_state: &dynamic_state,
         layout: pipeline_layout,

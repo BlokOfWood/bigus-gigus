@@ -29,10 +29,8 @@ impl Shaders {
             .map(|chunk| u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
             .collect();
 
-        println!("code_size: {}", shader_code.len());
-
         let create_info = ShaderModuleCreateInfo {
-            code_size: shader_code.len() * 4,
+            code_size: shader_code.len() * 4, // shader_code is a u32 array therefore every member is 4 bytes, not 1. 
             p_code: shader_code.as_ptr(),
             ..Default::default()
         };
