@@ -3,9 +3,7 @@ use std::{collections::HashSet, ffi::CStr, hash::RandomState, sync::Arc};
 use ash::{
     khr::surface::Instance as SurfaceInstance,
     vk::{
-        DeviceCreateInfo, DeviceQueueCreateInfo, Format, FormatFeatureFlags, ImageTiling,
-        MemoryPropertyFlags, PhysicalDevice, PhysicalDeviceFeatures, Queue, QueueFlags, SurfaceKHR,
-        TRUE,
+        api_version_major, api_version_minor, DeviceCreateInfo, DeviceQueueCreateInfo, Format, FormatFeatureFlags, ImageTiling, MemoryPropertyFlags, PhysicalDevice, PhysicalDeviceFeatures, Queue, QueueFlags, SurfaceKHR, TRUE
     },
     Device, Entry, Instance,
 };
@@ -49,14 +47,18 @@ impl BigusDevice {
             surface.clone(),
         );
 
-        println!(
-            "Using device: {}",
-            unsafe { instance.get_physical_device_properties(physical_device) }
-                .device_name_as_c_str()
-                .unwrap()
-                .to_str()
-                .unwrap()
-        );
+        let device_capabilities =
+            unsafe { instance.get_physical_device_properties(physical_device) };
+
+        let device_name = device_capabilities
+            .device_name_as_c_str()
+            .unwrap()
+            .to_str()
+            .unwrap();
+
+        let device_version = device_capabilities.api_version;
+
+        println!("Using device: {}, Version: {}.{}", device_name, api_version_major(device_version), api_version_minor(device_version));
 
         let unique_queue_families: HashSet<u32, RandomState> = HashSet::from_iter([
             queue_family_indices.graphics_family.unwrap(),

@@ -99,7 +99,7 @@ pub(super) fn create_graphics_pipeline(
     let attribute_description =
         VertexBuffer::get_attribute_descriptions().map(|description| description.1);
 
-    let shaderStages = [vert_shader_stage_info, frag_shader_stage_info];
+    let shader_stages = [vert_shader_stage_info, frag_shader_stage_info];
 
     let vertex_input_info = PipelineVertexInputStateCreateInfo {
         vertex_binding_description_count: 1,
@@ -180,7 +180,7 @@ pub(super) fn create_graphics_pipeline(
 
     let pipeline_info = GraphicsPipelineCreateInfo {
         stage_count: 2,
-        p_stages: shaderStages.as_ptr(),
+        p_stages: shader_stages.as_ptr(),
         p_vertex_input_state: &vertex_input_info,
         p_input_assembly_state: &input_assembly,
         p_viewport_state: &viewport_state,

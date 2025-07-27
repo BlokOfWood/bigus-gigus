@@ -83,6 +83,7 @@ impl VulkanRenderer {
         let application_info = ApplicationInfo {
             p_application_name: APPLICATION_NAME.as_ptr() as *const i8,
             p_engine_name: ENGINE_NAME.as_ptr() as *const i8,
+            api_version: vk::make_api_version(0, 1, 0, 0),
             ..Default::default()
         };
 
