@@ -12,7 +12,7 @@ use super::{swap_chain::SwapChainSupport, vulkan::REQUIRED_EXTENSIONS};
 
 #[derive(Clone)]
 pub struct BigusDevice {
-    instance: Instance,
+    pub instance: Instance,
     pub phys_dev: PhysicalDevice,
     pub dev: Device,
     surface_instance: SurfaceInstance,

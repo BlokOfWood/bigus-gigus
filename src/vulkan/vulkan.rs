@@ -13,7 +13,7 @@ use winit::{
 use crate::vulkan::{
     command_pool::{create_command_pool, create_render_pass},
     device_and_queues::QueueFamilyIndices,
-    image::{create_depth_resources, create_image_views},
+    image::{create_depth_resources, create_image_views, create_texture_image},
     pipeline::{create_descriptor_set_layout, create_graphics_pipeline},
     swap_chain::{create_frame_buffers, create_swap_chain},
     window::{create_surface, enumerate_required_extensions},
@@ -180,6 +180,9 @@ impl VulkanRenderer {
             depth_image_view.clone(),
             image_extent,
         );
+        let image = create_texture_image(
+            &bigus_device
+        );
         /*
         let queues = device.queues();
 
@@ -198,18 +201,7 @@ impl VulkanRenderer {
         );
 
         let uniform_buffers = create_uniform_buffers((&images).len(), allocator.clone()).unwrap();
-        let image = create_texture_image(
-            allocator.clone(),
-            &StandardCommandBufferAllocator::new(
-                device.device(),
-                StandardCommandBufferAllocatorCreateInfo {
-                    primary_buffer_count: 1,
-                    ..Default::default()
-                },
-            ),
-            queues.graphics_queue.clone(),
-            device.device(),
-        );
+
 
         let image_view = create_texture_image_view(image.clone());
 

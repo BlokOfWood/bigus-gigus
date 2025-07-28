@@ -1,101 +1,62 @@
+use std::{ffi::c_void, ptr};
+
 use ash::{
     vk::{
-        DeviceMemory, Extent3D, Format, FormatFeatureFlags, Image, ImageAspectFlags,
-        ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType,
-        ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, MemoryAllocateInfo,
+        Buffer, BufferCreateInfo, BufferUsageFlags, DeviceMemory, Extent3D, Format,
+        FormatFeatureFlags, Image, ImageAspectFlags, ImageCreateInfo, ImageLayout,
+        ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageView,
+        ImageViewCreateInfo, ImageViewType, MemoryAllocateInfo, MemoryMapFlags,
         MemoryPropertyFlags, SampleCountFlags, SharingMode,
     },
     Instance,
 };
+use image::ImageFormat;
 
 use super::device_and_queues::BigusDevice;
 
-/*
-pub fn create_texture_image(
-    allocator: Arc<dyn MemoryAllocator>,
-    command_buffer_allocator: &StandardCommandBufferAllocator,
-    queue: Arc<Queue>,
-    device: Arc<Device>,
-) -> Arc<Image> {
+pub fn create_texture_image(device: &BigusDevice) {
     let open_image = image::open("assets/textures/statue.jpg").unwrap();
 
-    let image_extent = [open_image.width(), open_image.height(), 1];
+    let image_extent = [open_image.width(), open_image.height()];
 
     let image_data = open_image.to_rgba8();
 
-    let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-        command_buffer_allocator,
-        queue.queue_family_index(),
-        CommandBufferUsage::OneTimeSubmit,
-    )
-    .unwrap();
+    let (staging_buffer, staging_buffer_memory) = device.create_buffer(
+        image_data.len() as u64,
+        BufferUsageFlags::TRANSFER_SRC,
+        MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
+    );
 
-    let staging_buffer: Subbuffer<[u8]> = Buffer::from_iter(
-        allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::TRANSFER_SRC,
-            sharing: Sharing::Exclusive,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter {
-                required_flags: MemoryPropertyFlags::HOST_VISIBLE
-                    | MemoryPropertyFlags::HOST_COHERENT,
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-        image_data.into_raw(),
-    )
-    .unwrap();
+    unsafe {
+        let data = device
+            .dev
+            .map_memory(
+                staging_buffer_memory,
+                0,
+                image_data.len() as u64,
+                MemoryMapFlags::empty(),
+            )
+            .unwrap();
+        data.copy_from(image_data.as_ptr() as *mut c_void, image_data.len());
 
-    let image = Image::new(
-        allocator.clone(),
-        ImageCreateInfo {
-            image_type: ImageType::Dim2d,
-            extent: image_extent,
-            mip_levels: 1,
-            array_layers: 1,
-            format: Format::R8G8B8A8_SRGB,
-            tiling: ImageTiling::Optimal,
-            initial_layout: ImageLayout::Undefined,
-            usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
-            sharing: Sharing::Exclusive,
-            samples: SampleCount::Sample1,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter {
-                required_flags: MemoryPropertyFlags::DEVICE_LOCAL,
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-    )
-    .unwrap();
+        device.dev.unmap_memory(staging_buffer_memory);
+    };
 
-    command_buffer_builder
-        .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
-            staging_buffer,
-            image.clone(),
-        ))
-        .unwrap();
+    drop(open_image);
 
-    let command_buffer = command_buffer_builder.build().unwrap();
+    let (texture_image, texture_image_memory) = device.create_image(
+        image_extent,
+        Format::R8G8B8A8_SRGB,
+        ImageTiling::OPTIMAL,
+        ImageUsageFlags::TRANSFER_DST | ImageUsageFlags::SAMPLED,
+        MemoryPropertyFlags::DEVICE_LOCAL,
+    );
 
-    let mut now = sync::now(device.clone());
-    now.cleanup_finished();
-    let gpu_future = now.boxed();
-
-    let _ = gpu_future
-        .then_execute(queue, command_buffer)
-        .unwrap()
-        .then_signal_fence_and_flush()
-        .unwrap()
-        .wait(None);
-
-    image
+    
+    /*
+    */
 }
+/*
 pub fn create_texture_image_view(image: Arc<Image>) -> Arc<ImageView> {
     ImageView::new(
         image,
@@ -136,7 +97,6 @@ pub fn create_texture_sampler(device: Arc<Device>) -> Arc<Sampler> {
 impl BigusDevice {
     pub fn create_image(
         &self,
-        instance: &Instance,
         extent: [u32; 2],
         format: Format,
         tiling: ImageTiling,
@@ -168,7 +128,7 @@ impl BigusDevice {
         let alloc_info = MemoryAllocateInfo {
             allocation_size: mem_requirements.size,
             memory_type_index: self.find_memory_type(
-                instance,
+                &self.instance,
                 mem_requirements.memory_type_bits,
                 properties,
             ),
@@ -182,30 +142,29 @@ impl BigusDevice {
         (image, device_memory)
     }
 
-pub fn create_image_view(
-    &self,
-    image: Image,
-    format: Format,
-    aspect_flags: ImageAspectFlags,
-) -> ImageView {
-    let view_info = ImageViewCreateInfo {
-        image,
-        view_type: ImageViewType::TYPE_2D,
-        format,
-        subresource_range: ImageSubresourceRange {
-            aspect_mask: aspect_flags,
-            base_mip_level: 0,
-            level_count: 1,
-            base_array_layer: 0,
-            layer_count: 1,
-        },
-        ..Default::default()
-    };
+    pub fn create_image_view(
+        &self,
+        image: Image,
+        format: Format,
+        aspect_flags: ImageAspectFlags,
+    ) -> ImageView {
+        let view_info = ImageViewCreateInfo {
+            image,
+            view_type: ImageViewType::TYPE_2D,
+            format,
+            subresource_range: ImageSubresourceRange {
+                aspect_mask: aspect_flags,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 1,
+            },
+            ..Default::default()
+        };
 
-    return unsafe { self.dev.create_image_view(&view_info, None).unwrap() };
+        return unsafe { self.dev.create_image_view(&view_info, None).unwrap() };
+    }
 }
-}
-
 
 pub fn create_image_views(
     device: &BigusDevice,
@@ -225,11 +184,22 @@ pub fn create_image_views(
     image_views
 }
 
-pub fn create_depth_resources(instance: &Instance, device: &BigusDevice, swap_chain_extent: [u32; 2]) -> (ImageView, DeviceMemory, Format) {
+pub fn create_depth_resources(
+    instance: &Instance,
+    device: &BigusDevice,
+    swap_chain_extent: [u32; 2],
+) -> (ImageView, DeviceMemory, Format) {
     let image_format = find_depth_format(instance, &device);
 
-    let (depth_image, depth_image_memory) = device.create_image(instance, swap_chain_extent, image_format, ImageTiling::OPTIMAL, ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT, MemoryPropertyFlags::DEVICE_LOCAL);
-    let depth_image_view = device.create_image_view(depth_image, image_format, ImageAspectFlags::DEPTH);
+    let (depth_image, depth_image_memory) = device.create_image(
+        swap_chain_extent,
+        image_format,
+        ImageTiling::OPTIMAL,
+        ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+        MemoryPropertyFlags::DEVICE_LOCAL,
+    );
+    let depth_image_view =
+        device.create_image_view(depth_image, image_format, ImageAspectFlags::DEPTH);
 
     (depth_image_view, depth_image_memory, image_format)
 }

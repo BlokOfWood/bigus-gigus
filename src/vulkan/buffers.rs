@@ -1,16 +1,19 @@
 use std::sync::Arc;
 
-use ash::vk::{Format, VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate};
-
-use crate::math::{
-    graphics_ops::{look_at, perspective},
-    quaternion::Quaternion,
-    vector::{Vector3, VECTOR3_ZERO},
+use ash::vk::{
+    Buffer, BufferCreateInfo, BufferUsageFlags, DeviceMemory, DeviceSize, Format, MemoryAllocateInfo, MemoryPropertyFlags, SharingMode, VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate
 };
 
-use super::{
-    vulkan::VulkanRenderer,
+use crate::{
+    math::{
+        graphics_ops::{look_at, perspective},
+        quaternion::Quaternion,
+        vector::{Vector3, VECTOR3_ZERO},
+    },
+    vulkan::device_and_queues::BigusDevice,
 };
+
+use super::vulkan::VulkanRenderer;
 use std::mem::offset_of;
 
 #[repr(C)]
@@ -68,10 +71,7 @@ pub const VERTICES: [Vertex; 8] = [
     },
 ];
 
-pub const INDICES: [u16; 12] = [
-    0, 1, 2, 2, 3, 0,  
-    4, 5, 6, 6, 7, 4,  
-];
+pub const INDICES: [u16; 12] = [0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4];
 
 pub struct VertexBuffer;
 
@@ -116,7 +116,51 @@ impl VertexBuffer {
         ]
     }
 }
-/* 
+
+impl BigusDevice {
+    pub fn create_buffer(
+        &self,
+        size: u64,
+        usage: BufferUsageFlags,
+        properties: MemoryPropertyFlags,
+    ) -> (Buffer, DeviceMemory) {
+        let buffer = unsafe {
+            self.dev
+                .create_buffer(
+                    &BufferCreateInfo {
+                        size,
+                        usage,
+                        sharing_mode: SharingMode::EXCLUSIVE,
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .unwrap()
+        };
+
+        let mem_requirements = unsafe { self.dev.get_buffer_memory_requirements(buffer) };
+
+        let buffer_memory = unsafe {
+            self.dev.allocate_memory(
+                &MemoryAllocateInfo {
+                    memory_type_index: self.find_memory_type(
+                        &self.instance,
+                        mem_requirements.memory_type_bits,
+                        properties,
+                    ),
+                    allocation_size: mem_requirements.size,
+                    ..Default::default()
+                },
+                None,
+            ).unwrap()
+        };
+
+        unsafe { &self.dev.bind_buffer_memory(buffer, buffer_memory, 0).unwrap() };
+
+        (buffer, buffer_memory)
+    }
+}
+/*
 pub(crate) fn create_vertex_buffer(
     dev: Arc<Device>,
     graphics_queue: Arc<Queue>,
