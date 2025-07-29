@@ -1,11 +1,6 @@
-use std::{
-    fs::{self},
-    sync::Arc,
-};
+use std::fs::{self};
 
 use ash::vk::{ShaderModule, ShaderModuleCreateInfo};
-
-use crate::vulkan::shader;
 
 use super::device_and_queues::BigusDevice;
 
@@ -30,7 +25,7 @@ impl Shaders {
             .collect();
 
         let create_info = ShaderModuleCreateInfo {
-            code_size: shader_code.len() * 4, // shader_code is a u32 array therefore every member is 4 bytes, not 1. 
+            code_size: shader_code.len() * 4, // shader_code is a u32 array therefore every member is 4 bytes, not 1.
             p_code: shader_code.as_ptr(),
             ..Default::default()
         };

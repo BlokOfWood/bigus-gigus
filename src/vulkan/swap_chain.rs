@@ -1,11 +1,10 @@
 use ash::khr::surface::Instance as SurfaceInstance;
 use ash::vk::{
-    self, ColorSpaceKHR, CompositeAlphaFlagsKHR, Extent2D, Format, Framebuffer,
+    ColorSpaceKHR, CompositeAlphaFlagsKHR, Extent2D, Format, Framebuffer,
     FramebufferCreateInfo, Image, ImageUsageFlags, ImageView, PhysicalDevice, PresentModeKHR,
     RenderPass, SharingMode, SurfaceCapabilitiesKHR, SurfaceFormatKHR, SurfaceKHR,
     SwapchainCreateInfoKHR, SwapchainKHR, TRUE,
 };
-use ash::Instance;
 
 use super::device_and_queues::{BigusDevice, QueueFamilyIndices};
 

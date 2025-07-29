@@ -1,17 +1,83 @@
 use ash::vk::{
-    AccessFlags, AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, Device, Format, ImageLayout, PipelineBindPoint, PipelineStageFlags, RenderPass, RenderPassCreateInfo, SampleCountFlags, SubpassDependency, SubpassDescription, SUBPASS_EXTERNAL
+    AccessFlags, AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp,
+    CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel,
+    CommandBufferUsageFlags, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, Device,
+    Fence, Format, ImageLayout, PipelineBindPoint, PipelineStageFlags, Queue, RenderPass,
+    RenderPassCreateInfo, SampleCountFlags, SubmitInfo, SubpassDependency, SubpassDescription,
+    SUBPASS_EXTERNAL,
 };
 
 use super::device_and_queues::{BigusDevice, QueueFamilyIndices};
 
-pub(super) fn create_command_pool(device: &BigusDevice, queue_family_indices: &QueueFamilyIndices) -> CommandPool {
-    let pool_info = CommandPoolCreateInfo{
-        flags: CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
-        queue_family_index: queue_family_indices.graphics_family.unwrap() as u32,
-        ..Default::default()
-    };
+impl BigusDevice {
+    pub(super) fn create_command_pool(
+        &self,
+        queue_family_indices: &QueueFamilyIndices,
+    ) -> CommandPool {
+        let pool_info = CommandPoolCreateInfo {
+            flags: CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
+            queue_family_index: queue_family_indices.graphics_family.unwrap() as u32,
+            ..Default::default()
+        };
 
-    unsafe { device.dev.create_command_pool(&pool_info, None).unwrap() }
+        unsafe { self.dev.create_command_pool(&pool_info, None).unwrap() }
+    }
+
+    pub(super) fn begin_single_time_commands(&self, command_pool: &CommandPool) -> CommandBuffer {
+        let command_buffer = unsafe {
+            self.dev
+                .allocate_command_buffers(&CommandBufferAllocateInfo {
+                    level: CommandBufferLevel::PRIMARY,
+                    command_pool: *command_pool,
+                    command_buffer_count: 1,
+                    ..Default::default()
+                })
+                .unwrap()[0]
+        };
+
+        unsafe {
+            self.dev
+                .begin_command_buffer(
+                    command_buffer,
+                    &CommandBufferBeginInfo {
+                        flags: CommandBufferUsageFlags::ONE_TIME_SUBMIT,
+                        ..Default::default()
+                    },
+                )
+                .unwrap()
+        };
+
+        return command_buffer;
+    }
+
+    pub(super) fn end_single_time_commands(
+        &self,
+        command_pool: &CommandPool,
+        command_buffer: CommandBuffer,
+    ) {
+        unsafe { self.dev.end_command_buffer(command_buffer).unwrap() }
+
+        unsafe {
+            self.dev
+                .queue_submit(
+                    self.queues.graphics_queue,
+                    &[SubmitInfo {
+                        command_buffer_count: 1,
+                        p_command_buffers: &command_buffer,
+                        ..Default::default()
+                    }],
+                    Fence::null(),
+                )
+                .unwrap();
+
+            self.dev
+                .queue_wait_idle(self.queues.graphics_queue)
+                .unwrap();
+
+            self.dev
+                .free_command_buffers(*command_pool, &[command_buffer]);
+        };
+    }
 }
 
 /*
@@ -215,5 +281,10 @@ pub(super) fn create_render_pass(
         ..Default::default()
     };
 
-    unsafe { device.dev.create_render_pass(&render_pass_create_info, None).unwrap() }
+    unsafe {
+        device
+            .dev
+            .create_render_pass(&render_pass_create_info, None)
+            .unwrap()
+    }
 }

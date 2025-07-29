@@ -1,19 +1,14 @@
-use std::sync::Arc;
-
 use ash::vk::{
-    Buffer, BufferCreateInfo, BufferUsageFlags, DeviceMemory, DeviceSize, Format, MemoryAllocateInfo, MemoryPropertyFlags, SharingMode, VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate
+    Buffer, BufferCreateInfo, BufferImageCopy, BufferUsageFlags, CommandPool, DeviceMemory,
+    Extent3D, Format, Image, ImageAspectFlags, ImageLayout, ImageSubresourceLayers,
+    MemoryAllocateInfo, MemoryPropertyFlags, Offset3D, SharingMode,
+    VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate,
 };
 
-use crate::{
-    math::{
-        graphics_ops::{look_at, perspective},
-        quaternion::Quaternion,
-        vector::{Vector3, VECTOR3_ZERO},
-    },
-    vulkan::device_and_queues::BigusDevice,
-};
+use crate::
+    vulkan::device_and_queues::BigusDevice
+;
 
-use super::vulkan::VulkanRenderer;
 use std::mem::offset_of;
 
 #[repr(C)]
@@ -141,23 +136,69 @@ impl BigusDevice {
         let mem_requirements = unsafe { self.dev.get_buffer_memory_requirements(buffer) };
 
         let buffer_memory = unsafe {
-            self.dev.allocate_memory(
-                &MemoryAllocateInfo {
-                    memory_type_index: self.find_memory_type(
-                        &self.instance,
-                        mem_requirements.memory_type_bits,
-                        properties,
-                    ),
-                    allocation_size: mem_requirements.size,
-                    ..Default::default()
-                },
-                None,
-            ).unwrap()
+            self.dev
+                .allocate_memory(
+                    &MemoryAllocateInfo {
+                        memory_type_index: self.find_memory_type(
+                            &self.instance,
+                            mem_requirements.memory_type_bits,
+                            properties,
+                        ),
+                        allocation_size: mem_requirements.size,
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .unwrap()
         };
 
-        unsafe { &self.dev.bind_buffer_memory(buffer, buffer_memory, 0).unwrap() };
+        unsafe {
+            self.dev
+                .bind_buffer_memory(buffer, buffer_memory, 0)
+                .unwrap();
+        };
 
         (buffer, buffer_memory)
+    }
+
+    pub fn copy_buffer_to_image(
+        &self,
+        buffer: Buffer,
+        image: Image,
+        command_pool: &CommandPool,
+        width: u32,
+        height: u32,
+    ) {
+        let command_buffer = self.begin_single_time_commands(command_pool);
+
+        unsafe {
+            self.dev.cmd_copy_buffer_to_image(
+                command_buffer,
+                buffer,
+                image,
+                ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[BufferImageCopy {
+                    buffer_offset: 0,
+                    buffer_row_length: 0,
+                    buffer_image_height: 0,
+                    image_subresource: ImageSubresourceLayers {
+                        aspect_mask: ImageAspectFlags::COLOR,
+                        mip_level: 0,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    },
+                    image_offset: Offset3D { x: 0, y: 0, z: 0 },
+                    image_extent: Extent3D {
+                        width,
+                        height,
+                        depth: 1,
+                    },
+                    ..Default::default()
+                }],
+            );
+        };
+
+        self.end_single_time_commands(command_pool, command_buffer);
     }
 }
 /*

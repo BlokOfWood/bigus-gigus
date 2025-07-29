@@ -11,7 +11,7 @@ use winit::{
 };
 
 use crate::vulkan::{
-    command_pool::{create_command_pool, create_render_pass},
+    command_pool::{create_render_pass},
     device_and_queues::QueueFamilyIndices,
     image::{create_depth_resources, create_image_views, create_texture_image},
     pipeline::{create_descriptor_set_layout, create_graphics_pipeline},
@@ -165,7 +165,7 @@ impl VulkanRenderer {
         let graphics_pipeline =
             create_graphics_pipeline(&bigus_device, render_pass, vec![descriptor_set_layout]);
 
-        let command_pool = create_command_pool(&bigus_device, &queue_family_indices);
+        let command_pool = bigus_device.create_command_pool(&queue_family_indices);
 
         let depth_resources = create_depth_resources(
             &inst,
@@ -180,12 +180,13 @@ impl VulkanRenderer {
             depth_image_view.clone(),
             image_extent,
         );
-        let image = create_texture_image(
-            &bigus_device
-        );
-        /*
-        let queues = device.queues();
 
+        let image = create_texture_image(
+            &bigus_device,
+            &command_pool
+        );
+
+        /*
         let vertex_buffer = create_vertex_buffer(
             device.device(),
             queues.graphics_queue.clone(),

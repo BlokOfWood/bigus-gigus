@@ -1,11 +1,11 @@
-use std::{ptr::null, sync::Arc};
+use std::ptr::null;
 
 use ash::vk::{
     ColorComponentFlags, CompareOp, CullModeFlags, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, DynamicState, FrontFace, GraphicsPipelineCreateInfo, LogicOp, Pipeline, PipelineCache, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, RenderPass, SampleCountFlags, ShaderStageFlags, FALSE, TRUE
 };
 
 use super::{
-    buffers::{Vertex, VertexBuffer},
+    buffers::VertexBuffer,
     device_and_queues::BigusDevice,
     shader::Shaders,
 };
