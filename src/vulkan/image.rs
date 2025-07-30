@@ -1,19 +1,15 @@
-use std::{ffi::c_void};
+use std::ffi::c_void;
 
 use ash::{
     vk::{
-        AccessFlags, BufferUsageFlags, CommandPool, DependencyFlags,
-        DeviceMemory, Extent3D, Format, FormatFeatureFlags, Image, ImageAspectFlags,
-        ImageCreateInfo, ImageLayout, ImageMemoryBarrier, ImageSubresourceRange, ImageTiling,
-        ImageType, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType,
-        MemoryAllocateInfo, MemoryMapFlags, MemoryPropertyFlags, PipelineStageFlags, SampleCountFlags, SharingMode, QUEUE_FAMILY_IGNORED,
+        AccessFlags, BorderColor, BufferUsageFlags, CommandPool, CompareOp, DependencyFlags, DeviceMemory, Extent3D, Filter, Format, FormatFeatureFlags, Image, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageMemoryBarrier, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, MemoryAllocateInfo, MemoryMapFlags, MemoryPropertyFlags, PipelineStageFlags, SampleCountFlags, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, SharingMode, FALSE, QUEUE_FAMILY_IGNORED, TRUE
     },
     Instance,
 };
 
 use super::device_and_queues::BigusDevice;
 
-pub fn create_texture_image(device: &BigusDevice, command_pool: &CommandPool) {
+pub fn create_texture_image(device: &BigusDevice, command_pool: &CommandPool) -> Image {
     let open_image = image::open("assets/textures/statue.jpg").unwrap();
 
     let image_extent = [open_image.width(), open_image.height()];
@@ -79,6 +75,8 @@ pub fn create_texture_image(device: &BigusDevice, command_pool: &CommandPool) {
         device.dev.destroy_buffer(staging_buffer, None);
         device.dev.free_memory(staging_buffer_memory, None);
     };
+
+    texture_image
 }
 
 fn transition_image_layout(
@@ -138,44 +136,36 @@ fn transition_image_layout(
 
     device.end_single_time_commands(command_pool, command_buffer);
 }
-/*
-pub fn create_texture_image_view(image: Arc<Image>) -> Arc<ImageView> {
-    ImageView::new(
-        image,
-        ImageViewCreateInfo {
-            view_type: ImageViewType::Dim2d,
-            format: Format::R8G8B8A8_SRGB,
-            subresource_range: ImageSubresourceRange {
-                aspects: ImageAspects::COLOR,
-                mip_levels: 0..1,
-                array_layers: 0..1,
-            },
-            ..Default::default()
-        },
-    )
-    .unwrap()
+pub fn create_texture_image_view(device: &BigusDevice, image: Image) -> ImageView {
+    device.create_image_view(image, Format::R8G8B8A8_SRGB, ImageAspectFlags::COLOR)
 }
 
-pub fn create_texture_sampler(device: Arc<Device>) -> Arc<Sampler> {
-    Sampler::new(
-        device.clone(),
-        SamplerCreateInfo {
-            mag_filter: Filter::Linear,
-            min_filter: Filter::Linear,
-            address_mode: [SamplerAddressMode::Repeat; 3],
-            anisotropy: Some(device.physical_device().properties().max_sampler_anisotropy),
-            border_color: BorderColor::IntOpaqueBlack,
-            unnormalized_coordinates: false,
-            compare: None,
-            mipmap_mode: SamplerMipmapMode::Linear,
-            mip_lod_bias: 0.0,
-            lod: 0.0..=0.0,
-            ..Default::default()
-        },
-    )
-    .unwrap()
+pub fn create_texture_sampler(device: &BigusDevice) -> Sampler {
+    unsafe {
+        device
+            .dev
+            .create_sampler(
+                &SamplerCreateInfo {
+                    mag_filter: Filter::LINEAR,
+                    min_filter: Filter::LINEAR,
+                    address_mode_u: SamplerAddressMode::REPEAT,
+                    address_mode_v: SamplerAddressMode::REPEAT,
+                    address_mode_w: SamplerAddressMode::REPEAT,
+                    anisotropy_enable: TRUE,
+                    max_anisotropy: device.phys_dev_capabilities.limits.max_sampler_anisotropy,
+                    border_color: BorderColor::INT_OPAQUE_BLACK,
+                    unnormalized_coordinates: FALSE,
+                    compare_enable: FALSE,
+                    compare_op: CompareOp::ALWAYS,
+                    mipmap_mode: SamplerMipmapMode::LINEAR,
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap()
+    }
 }
-*/
+
 impl BigusDevice {
     pub fn create_image(
         &self,

@@ -1,15 +1,15 @@
 use ash::vk::{
-    Buffer, BufferCreateInfo, BufferImageCopy, BufferUsageFlags, CommandPool, DeviceMemory,
-    Extent3D, Format, Image, ImageAspectFlags, ImageLayout, ImageSubresourceLayers,
-    MemoryAllocateInfo, MemoryPropertyFlags, Offset3D, SharingMode,
+    Buffer, BufferCopy, BufferCreateInfo, BufferImageCopy, BufferUsageFlags, CommandPool,
+    DeviceMemory, Extent3D, Format, Image, ImageAspectFlags, ImageLayout, ImageSubresourceLayers,
+    MemoryAllocateInfo, MemoryMapFlags, MemoryPropertyFlags, Offset3D, SharingMode,
     VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate,
 };
 
-use crate::
-    vulkan::device_and_queues::BigusDevice
-;
+use crate::vulkan::{
+    device_and_queues::BigusDevice, ubo::UniformBufferObject, vulkan::MAX_FRAMES_IN_FLIGHT,
+};
 
-use std::mem::offset_of;
+use std::{mem::offset_of, os::raw::c_void};
 
 #[repr(C)]
 pub struct Vertex {
@@ -161,6 +161,45 @@ impl BigusDevice {
         (buffer, buffer_memory)
     }
 
+    fn copy_buffer(
+        &self,
+        command_pool: &CommandPool,
+        src_buffer: Buffer,
+        dst_buffer: Buffer,
+        size: u64,
+    ) {
+        let command_buffer = self.begin_single_time_commands(command_pool);
+
+        unsafe {
+            self.dev.cmd_copy_buffer(
+                command_buffer,
+                src_buffer,
+                dst_buffer,
+                &[BufferCopy {
+                    size,
+                    ..Default::default()
+                }],
+            )
+        };
+    }
+
+    pub fn copy_into_buffer<T>(&self, buffer_memory: DeviceMemory, src_data: &[T]) {
+        unsafe {
+            let data = self
+                .dev
+                .map_memory(
+                    buffer_memory,
+                    0,
+                    (src_data.len() * size_of_val(&src_data[0])) as u64,
+                    MemoryMapFlags::empty(),
+                )
+                .unwrap();
+            data.copy_from(src_data.as_ptr() as *mut c_void, src_data.len());
+
+            self.dev.unmap_memory(buffer_memory);
+        };
+    }
+
     pub fn copy_buffer_to_image(
         &self,
         buffer: Buffer,
@@ -200,168 +239,102 @@ impl BigusDevice {
 
         self.end_single_time_commands(command_pool, command_buffer);
     }
-}
-/*
-pub(crate) fn create_vertex_buffer(
-    dev: Arc<Device>,
-    graphics_queue: Arc<Queue>,
-    command_pool: &CommandPool,
-    allocator: Arc<dyn MemoryAllocator>,
-) -> Arc<Buffer> {
-    let staging_buffer = Buffer::from_data(
-        allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::TRANSFER_SRC,
-            sharing: Sharing::Exclusive,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter {
-                required_flags: MemoryPropertyFlags::HOST_VISIBLE
-                    | MemoryPropertyFlags::HOST_COHERENT,
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-        VertexData { vertices: VERTICES },
-    )
-    .unwrap();
 
-    let vertex_buffer = Buffer::new(
-        allocator,
-        BufferCreateInfo {
-            usage: BufferUsage::TRANSFER_DST | BufferUsage::VERTEX_BUFFER,
-            sharing: Sharing::Exclusive,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter {
-                required_flags: MemoryPropertyFlags::DEVICE_LOCAL,
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-        DeviceLayout::from_size_alignment(
-            (size_of::<VertexData>()) as u64,
-            DeviceAlignment::MIN.into(),
-        )
-        .unwrap(),
-    )
-    .unwrap();
+    pub(crate) fn create_vertex_buffer(
+        &self,
+        command_pool: &CommandPool,
+    ) -> (Buffer, DeviceMemory) {
+        let buffer_size = (size_of::<Vertex>() * VERTICES.len()) as u64;
 
-    let command_buffer =
-        command_pool.record_copy_pass(staging_buffer.into_bytes(), vertex_buffer.clone().into());
+        let (staging_buffer, staging_buffer_memory) = self.create_buffer(
+            buffer_size,
+            BufferUsageFlags::TRANSFER_SRC,
+            MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
+        );
 
-    let mut now = sync::now(dev.clone());
-    now.cleanup_finished();
-    let gpu_future = now.boxed();
+        self.copy_into_buffer(staging_buffer_memory, &VERTICES);
 
-    let _ = gpu_future
-        .then_execute(graphics_queue.clone(), command_buffer)
-        .unwrap()
-        .then_signal_fence_and_flush()
-        .unwrap()
-        .wait(None);
+        let (vertex_buffer, vertex_buffer_memory) = self.create_buffer(
+            buffer_size,
+            BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::VERTEX_BUFFER,
+            MemoryPropertyFlags::DEVICE_LOCAL,
+        );
 
-    vertex_buffer
-}
+        self.copy_buffer(command_pool, staging_buffer, vertex_buffer, buffer_size);
 
-pub(crate) fn create_index_buffer(
-    dev: Arc<Device>,
-    graphics_queue: Arc<Queue>,
-    command_pool: &CommandPool,
-    allocator: Arc<dyn MemoryAllocator>,
-) -> Arc<Buffer> {
-    let staging_buffer = Buffer::from_data(
-        allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::TRANSFER_SRC,
-            sharing: Sharing::Exclusive,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter {
-                required_flags: MemoryPropertyFlags::HOST_VISIBLE
-                    | MemoryPropertyFlags::HOST_COHERENT,
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-        INDICES,
-    )
-    .unwrap();
+        unsafe {
+            self.dev.destroy_buffer(staging_buffer, None);
+            self.dev.free_memory(staging_buffer_memory, None);
+        };
 
-    let index_buffer = Buffer::new(
-        allocator,
-        BufferCreateInfo {
-            usage: BufferUsage::TRANSFER_DST | BufferUsage::INDEX_BUFFER,
-            sharing: Sharing::Exclusive,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter {
-                required_flags: MemoryPropertyFlags::DEVICE_LOCAL,
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-        DeviceLayout::from_size_alignment(
-            (std::mem::size_of::<u16>() * INDICES.len()) as u64,
-            DeviceAlignment::MIN.into()
-        ).unwrap(),
-    )
-    .unwrap();
-
-    let command_buffer =
-        command_pool.record_copy_pass(staging_buffer.into_bytes(), index_buffer.clone().into());
-
-    let mut now = sync::now(dev.clone());
-    now.cleanup_finished();
-    let gpu_future = now.boxed();
-
-    let _ = gpu_future
-        .then_execute(graphics_queue.clone(), command_buffer)
-        .unwrap()
-        .then_signal_fence_and_flush()
-        .unwrap()
-        .wait(None);
-
-    index_buffer
-}
-
-pub(super) fn create_uniform_buffers(
-    max_frames_in_flight: usize,
-    allocator: Arc<dyn MemoryAllocator>,
-) -> Result<Vec<Subbuffer<UniformBufferObject>>, Validated<VulkanError>> {
-    let mut uniform_buffers: Vec<Subbuffer<UniformBufferObject>> =
-        Vec::with_capacity(max_frames_in_flight);
-
-    // TODO: convert to persistent mapping
-    for _ in 0..max_frames_in_flight {
-        let uniform_buffer = Buffer::new_sized::<UniformBufferObject>(
-            allocator.clone(),
-            BufferCreateInfo {
-                usage: BufferUsage::UNIFORM_BUFFER,
-                sharing: Sharing::Exclusive,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter {
-                    required_flags: MemoryPropertyFlags::HOST_VISIBLE
-                        | MemoryPropertyFlags::HOST_COHERENT,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        )
-        .unwrap();
-
-        uniform_buffers.push(uniform_buffer.clone());
+        (vertex_buffer, vertex_buffer_memory)
     }
 
-    return Ok(uniform_buffers);
-}
+    pub(crate) fn create_index_buffer(&self, command_pool: &CommandPool) -> (Buffer, DeviceMemory) {
+        let buffer_size = (size_of::<Vertex>() * INDICES.len()) as u64;
 
+        let (staging_buffer, staging_buffer_memory) = self.create_buffer(
+            buffer_size,
+            BufferUsageFlags::TRANSFER_SRC,
+            MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
+        );
+
+        self.copy_into_buffer(staging_buffer_memory, &INDICES);
+
+        let (index_buffer, index_buffer_memory) = self.create_buffer(
+            buffer_size,
+            BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::INDEX_BUFFER,
+            MemoryPropertyFlags::DEVICE_LOCAL,
+        );
+
+        self.copy_buffer(command_pool, staging_buffer, index_buffer, buffer_size);
+
+        unsafe {
+            self.dev.destroy_buffer(staging_buffer, None);
+            self.dev.free_memory(staging_buffer_memory, None);
+        };
+
+        (index_buffer, index_buffer_memory)
+    }
+
+    pub(crate) fn create_uniform_buffers(
+        &self,
+    ) -> (Vec<Buffer>, Vec<DeviceMemory>, Vec<*mut c_void>) {
+        let buffer_size = size_of::<UniformBufferObject>() as u64;
+
+        let mut uniform_buffers = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
+        let mut uniform_buffer_memories = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
+        let mut uniform_buffers_mapped = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
+
+        for i in 0..MAX_FRAMES_IN_FLIGHT {
+            let (uniform_buffer, uniform_buffer_memory) = self.create_buffer(
+                buffer_size,
+                BufferUsageFlags::UNIFORM_BUFFER,
+                MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
+            );
+            uniform_buffers.push(uniform_buffer);
+            uniform_buffer_memories.push(uniform_buffer_memory);
+
+            uniform_buffers_mapped.push(unsafe {
+                self.dev
+                    .map_memory(
+                        uniform_buffer_memory,
+                        0,
+                        buffer_size,
+                        MemoryMapFlags::empty(),
+                    )
+                    .unwrap()
+            });
+        }
+
+        (
+            uniform_buffers,
+            uniform_buffer_memories,
+            uniform_buffers_mapped,
+        )
+    }
+}
+/*
 impl VulkanRenderer {
     pub(super) fn update_uniform_buffer(&mut self, image_index: usize, aspect_ratio: f32) {
         let elapsed_time = self.start_time.elapsed();

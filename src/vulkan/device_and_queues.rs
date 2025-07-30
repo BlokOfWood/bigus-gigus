@@ -3,9 +3,7 @@ use std::{collections::HashSet, ffi::CStr, hash::RandomState};
 use ash::{
     khr::surface::Instance as SurfaceInstance,
     vk::{
-        api_version_major, api_version_minor, DeviceCreateInfo, DeviceQueueCreateInfo, Format,
-        FormatFeatureFlags, ImageTiling, MemoryPropertyFlags, PhysicalDevice,
-        PhysicalDeviceFeatures, Queue, QueueFlags, SurfaceKHR, TRUE,
+        api_version_major, api_version_minor, DeviceCreateInfo, DeviceQueueCreateInfo, Format, FormatFeatureFlags, ImageTiling, MemoryPropertyFlags, PhysicalDevice, PhysicalDeviceFeatures, PhysicalDeviceProperties, Queue, QueueFlags, SurfaceKHR, TRUE
     },
     Device, Entry, Instance,
 };
@@ -16,6 +14,7 @@ use super::{swap_chain::SwapChainSupport, vulkan::REQUIRED_EXTENSIONS};
 pub struct BigusDevice {
     pub instance: Instance,
     pub phys_dev: PhysicalDevice,
+    pub phys_dev_capabilities: PhysicalDeviceProperties,
     pub dev: Device,
     surface_instance: SurfaceInstance,
     pub queues: QueueFamilies,
@@ -41,6 +40,8 @@ impl BigusDevice {
                 })
                 .expect("No physical devices found")
         };
+
+        let physical_device_capabilities = unsafe { instance.get_physical_device_properties(physical_device) };
 
         let queue_family_indices = QueueFamilyIndices::find_queue_families(
             entry,
@@ -117,6 +118,7 @@ impl BigusDevice {
         Self {
             instance: instance.clone(),
             phys_dev: physical_device,
+            phys_dev_capabilities: physical_device_capabilities,
             dev: device,
             surface_instance,
             queues,

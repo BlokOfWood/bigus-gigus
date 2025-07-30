@@ -11,9 +11,12 @@ use winit::{
 };
 
 use crate::vulkan::{
-    command_pool::{create_render_pass},
+    command_pool::create_render_pass,
     device_and_queues::QueueFamilyIndices,
-    image::{create_depth_resources, create_image_views, create_texture_image},
+    image::{
+        create_depth_resources, create_image_views, create_texture_image,
+        create_texture_image_view, create_texture_sampler,
+    },
     pipeline::{create_descriptor_set_layout, create_graphics_pipeline},
     swap_chain::{create_frame_buffers, create_swap_chain},
     window::{create_surface, enumerate_required_extensions},
@@ -36,6 +39,8 @@ use crate::vulkan::device_and_queues::BigusDevice;
 const ENGINE_NAME: &str = "Very cool engine";
 const APPLICATION_NAME: &str = "Very cool application";
 pub(super) const REQUIRED_EXTENSIONS: [&CStr; 1] = [KHR_SWAPCHAIN_NAME];
+
+pub(super) const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 pub struct VulkanRenderer {
     pub(super) inst: Instance,
@@ -181,33 +186,20 @@ impl VulkanRenderer {
             image_extent,
         );
 
-        let image = create_texture_image(
-            &bigus_device,
-            &command_pool
-        );
+        let image = create_texture_image(&bigus_device, &command_pool);
+
+        let image_view = create_texture_image_view(&bigus_device, image);
+
+        let image_sampler = create_texture_sampler(&bigus_device);
+
+        let (vertex_buffer, vertex_buffer_memory) =
+            &bigus_device.create_vertex_buffer(&command_pool);
+
+        let (index_buffer, index_buffer_memory) = &bigus_device.create_index_buffer(&command_pool);
+
+        let uniform_buffers = &bigus_device.create_uniform_buffers();
 
         /*
-        let vertex_buffer = create_vertex_buffer(
-            device.device(),
-            queues.graphics_queue.clone(),
-            &command_pool,
-            allocator.clone(),
-        );
-
-        let index_buffer = create_index_buffer(
-            device.device(),
-            queues.graphics_queue.clone(),
-            &command_pool,
-            allocator.clone(),
-        );
-
-        let uniform_buffers = create_uniform_buffers((&images).len(), allocator.clone()).unwrap();
-
-
-        let image_view = create_texture_image_view(image.clone());
-
-        let texture_sampler = create_texture_sampler(device.device());
-
         let descriptor_sets = create_descriptor_sets(
             descriptor_set_layout.clone(),
             &uniform_buffers,
