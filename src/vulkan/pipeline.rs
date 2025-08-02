@@ -1,14 +1,22 @@
 use std::ptr::null;
 
 use ash::vk::{
-    ColorComponentFlags, CompareOp, CullModeFlags, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, DynamicState, FrontFace, GraphicsPipelineCreateInfo, LogicOp, Pipeline, PipelineCache, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, RenderPass, SampleCountFlags, ShaderStageFlags, FALSE, TRUE
+    ColorComponentFlags, CompareOp, CullModeFlags, DescriptorPool, DescriptorPoolCreateInfo,
+    DescriptorPoolSize, DescriptorSetLayout, DescriptorSetLayoutBinding,
+    DescriptorSetLayoutCreateInfo, DescriptorType, DynamicState, FrontFace,
+    GraphicsPipelineCreateInfo, LogicOp, Pipeline, PipelineCache,
+    PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo,
+    PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo,
+    PipelineInputAssemblyStateCreateInfo, PipelineLayoutCreateInfo,
+    PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo,
+    PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo,
+    PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, RenderPass, SampleCountFlags,
+    ShaderStageFlags, FALSE, TRUE,
 };
 
-use super::{
-    buffers::VertexBuffer,
-    device_and_queues::BigusDevice,
-    shader::Shaders,
-};
+use crate::vulkan::vulkan::MAX_FRAMES_IN_FLIGHT;
+
+use super::{buffers::VertexBuffer, device_and_queues::BigusDevice, shader::Shaders};
 
 pub(super) fn create_descriptor_set_layout(device: &BigusDevice) -> DescriptorSetLayout {
     let ubo_layout_binding = DescriptorSetLayoutBinding {
@@ -43,6 +51,34 @@ pub(super) fn create_descriptor_set_layout(device: &BigusDevice) -> DescriptorSe
             .create_descriptor_set_layout(&layout_create_info, None)
             .unwrap()
     };
+}
+impl BigusDevice {
+    pub fn create_descriptor_pool(&self) -> DescriptorPool {
+        let pool_sizes = [
+            DescriptorPoolSize {
+                ty: DescriptorType::UNIFORM_BUFFER,
+                descriptor_count: MAX_FRAMES_IN_FLIGHT as u32,
+            },
+            DescriptorPoolSize {
+                ty: DescriptorType::COMBINED_IMAGE_SAMPLER,
+                descriptor_count: MAX_FRAMES_IN_FLIGHT as u32,
+            },
+        ];
+
+        unsafe {
+            self.dev
+                .create_descriptor_pool(
+                    &DescriptorPoolCreateInfo {
+                        pool_size_count: pool_sizes.len() as u32,
+                        p_pool_sizes: pool_sizes.as_ptr(),
+                        max_sets: MAX_FRAMES_IN_FLIGHT as u32,
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .unwrap()
+        }
+    }
 }
 /*
 pub(super) fn create_descriptor_sets(
@@ -164,7 +200,7 @@ pub(super) fn create_graphics_pipeline(
 
     let dynamic_states = [DynamicState::VIEWPORT, DynamicState::SCISSOR];
 
-    let dynamic_state = PipelineDynamicStateCreateInfo{
+    let dynamic_state = PipelineDynamicStateCreateInfo {
         dynamic_state_count: dynamic_states.len() as u32,
         p_dynamic_states: dynamic_states.as_ptr(),
         ..Default::default()
@@ -176,7 +212,12 @@ pub(super) fn create_graphics_pipeline(
         ..Default::default()
     };
 
-    let pipeline_layout = unsafe { device.dev.create_pipeline_layout(&pipeline_layout_info, None).unwrap() };
+    let pipeline_layout = unsafe {
+        device
+            .dev
+            .create_pipeline_layout(&pipeline_layout_info, None)
+            .unwrap()
+    };
 
     let pipeline_info = GraphicsPipelineCreateInfo {
         stage_count: 2,
@@ -196,11 +237,15 @@ pub(super) fn create_graphics_pipeline(
         ..Default::default()
     };
 
-    let graphics_pipeline = unsafe { device.dev.create_graphics_pipelines(PipelineCache::null(), &[pipeline_info], None).unwrap()[0] };
+    let graphics_pipeline = unsafe {
+        device
+            .dev
+            .create_graphics_pipelines(PipelineCache::null(), &[pipeline_info], None)
+            .unwrap()[0]
+    };
 
     unsafe { device.dev.destroy_shader_module(shaders.frag_shader, None) };
     unsafe { device.dev.destroy_shader_module(shaders.vert_shader, None) };
 
     graphics_pipeline
-
 }

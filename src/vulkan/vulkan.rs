@@ -198,6 +198,8 @@ impl VulkanRenderer {
         let (index_buffer, index_buffer_memory) = &bigus_device.create_index_buffer(&command_pool);
 
         let uniform_buffers = &bigus_device.create_uniform_buffers();
+        
+        let descriptor_pool = &bigus_device.create_descriptor_pool();
 
         /*
         let descriptor_sets = create_descriptor_sets(
