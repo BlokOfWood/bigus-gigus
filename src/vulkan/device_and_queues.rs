@@ -3,10 +3,15 @@ use std::{collections::HashSet, ffi::CStr, hash::RandomState};
 use ash::{
     khr::surface::Instance as SurfaceInstance,
     vk::{
-        api_version_major, api_version_minor, DeviceCreateInfo, DeviceQueueCreateInfo, Format, FormatFeatureFlags, ImageTiling, MemoryPropertyFlags, PhysicalDevice, PhysicalDeviceFeatures, PhysicalDeviceProperties, Queue, QueueFlags, SurfaceKHR, TRUE
+        api_version_major, api_version_minor, DeviceCreateInfo, DeviceQueueCreateInfo, Fence,
+        FenceCreateFlags, FenceCreateInfo, Format, FormatFeatureFlags, ImageTiling,
+        MemoryPropertyFlags, PhysicalDevice, PhysicalDeviceFeatures, PhysicalDeviceProperties,
+        Queue, QueueFlags, Semaphore, SemaphoreCreateInfo, SurfaceKHR, TRUE,
     },
-    Device, Entry, Instance,
+    Device, Instance,
 };
+
+use crate::vulkan::vulkan::MAX_FRAMES_IN_FLIGHT;
 
 use super::{swap_chain::SwapChainSupport, vulkan::REQUIRED_EXTENSIONS};
 
@@ -16,14 +21,13 @@ pub struct BigusDevice {
     pub phys_dev: PhysicalDevice,
     pub phys_dev_capabilities: PhysicalDeviceProperties,
     pub dev: Device,
-    surface_instance: SurfaceInstance,
+    pub swapchain_dev: ash::khr::swapchain::Device,
     pub queues: QueueFamilies,
+    pub queue_family_indices: QueueFamilyIndices,
 }
 
 impl BigusDevice {
-    pub(super) fn new(entry: &Entry, instance: &Instance, surface: SurfaceKHR) -> Self {
-        let surface_instance = SurfaceInstance::new(entry, instance);
-
+    pub(super) fn new(instance: &Instance, surface: SurfaceKHR, surface_instance: SurfaceInstance) -> Self {
         let physical_device = *unsafe {
             instance
                 .enumerate_physical_devices()
@@ -31,23 +35,23 @@ impl BigusDevice {
                 .iter()
                 .find(|device| {
                     Self::is_device_suitable(
-                        entry,
                         instance,
                         **device,
-                        surface_instance.clone(),
+                        &surface_instance,
                         surface,
                     )
                 })
                 .expect("No physical devices found")
         };
 
-        let physical_device_capabilities = unsafe { instance.get_physical_device_properties(physical_device) };
+        let physical_device_capabilities =
+            unsafe { instance.get_physical_device_properties(physical_device) };
 
         let queue_family_indices = QueueFamilyIndices::find_queue_families(
-            entry,
             instance,
             physical_device,
             surface.clone(),
+            &surface_instance
         );
 
         let device_capabilities =
@@ -110,30 +114,32 @@ impl BigusDevice {
             graphics_queue: unsafe {
                 device.get_device_queue(queue_family_indices.graphics_family.unwrap(), 0)
             },
-            _presentation_queue: unsafe {
+            presentation_queue: unsafe {
                 device.get_device_queue(queue_family_indices.presentation_family.unwrap(), 0)
             },
         };
+
+        let swapchain_dev = ash::khr::swapchain::Device::new(instance, &device);
 
         Self {
             instance: instance.clone(),
             phys_dev: physical_device,
             phys_dev_capabilities: physical_device_capabilities,
+            swapchain_dev,
             dev: device,
-            surface_instance,
             queues,
+            queue_family_indices
         }
     }
 
     fn is_device_suitable(
-        entry: &Entry,
         instance: &Instance,
         device: PhysicalDevice,
-        surface_instance: SurfaceInstance,
+        surface_instance: &SurfaceInstance,
         surface: SurfaceKHR,
     ) -> bool {
         let queue_families =
-            QueueFamilyIndices::find_queue_families(entry, instance, device, surface.clone());
+            QueueFamilyIndices::find_queue_families(instance, device, surface.clone(), &surface_instance);
 
         let swap_chain_support =
             SwapChainSupport::new(device.clone(), surface_instance, surface.clone());
@@ -159,14 +165,13 @@ impl BigusDevice {
 
     pub fn find_supported_format(
         &self,
-        instance: &Instance,
         candidates: Vec<Format>,
         tiling: ImageTiling,
         features: FormatFeatureFlags,
     ) -> Format {
         for candidate in candidates {
             let format_props =
-                unsafe { instance.get_physical_device_format_properties(self.phys_dev, candidate) };
+                unsafe { self.instance.get_physical_device_format_properties(self.phys_dev, candidate) };
 
             match tiling {
                 ImageTiling::LINEAR if format_props.linear_tiling_features.contains(features) => {
@@ -199,13 +204,39 @@ impl BigusDevice {
 
         panic!("Failed to find suitable memory type!");
     }
+
+    pub fn create_sync_objects(&self) -> (Vec<Semaphore>, Vec<Semaphore>, Vec<Fence>) {
+        let mut image_available_semaphores: Vec<Semaphore> = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
+        let mut render_finished_semaphores: Vec<Semaphore> = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
+        let mut in_flight_fences: Vec<Fence> = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
+
+        let semaphore_info = SemaphoreCreateInfo {
+            ..Default::default()
+        };
+
+        let fence_info = FenceCreateInfo {
+            flags: FenceCreateFlags::SIGNALED,
+            ..Default::default()
+        };
+
+        for _ in 0..MAX_FRAMES_IN_FLIGHT {
+            unsafe {
+                image_available_semaphores.push(self.dev.create_semaphore(&semaphore_info, None).unwrap());
+                render_finished_semaphores.push(self.dev.create_semaphore(&semaphore_info, None).unwrap());
+                in_flight_fences.push(self.dev.create_fence(&fence_info, None).unwrap()); 
+            }
+        }
+
+        (image_available_semaphores, render_finished_semaphores, in_flight_fences)
+    }
 }
 
 #[derive(Clone)]
 pub struct QueueFamilies {
     pub graphics_queue: Queue,
-    pub _presentation_queue: Queue,
+    pub presentation_queue: Queue,
 }
+#[derive(Clone)]
 pub struct QueueFamilyIndices {
     pub graphics_family: Option<u32>,
     pub presentation_family: Option<u32>,
@@ -213,13 +244,11 @@ pub struct QueueFamilyIndices {
 
 impl QueueFamilyIndices {
     pub fn find_queue_families(
-        entry: &Entry,
         inst: &Instance,
         device: PhysicalDevice,
         surface: SurfaceKHR,
+        surface_instance: &SurfaceInstance,
     ) -> Self {
-        let surf_instance = SurfaceInstance::new(entry, inst);
-
         let mut indices = QueueFamilyIndices {
             graphics_family: None,
             presentation_family: None,
@@ -236,7 +265,7 @@ impl QueueFamilyIndices {
                     indices.graphics_family = Some(i as u32);
                 }
                 if unsafe {
-                    surf_instance
+                    surface_instance
                         .get_physical_device_surface_support(device, i as u32, surface)
                         .unwrap()
                 } {

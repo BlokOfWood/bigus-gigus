@@ -1,11 +1,12 @@
 use ash::vk::{
     AccessFlags, AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp,
-    CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel,
-    CommandBufferUsageFlags, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, Device,
-    Fence, Format, ImageLayout, PipelineBindPoint, PipelineStageFlags, Queue, RenderPass,
-    RenderPassCreateInfo, SampleCountFlags, SubmitInfo, SubpassDependency, SubpassDescription,
-    SUBPASS_EXTERNAL,
+    CommandBuffer, CommandBufferAllocateInfo,
+    CommandBufferBeginInfo, CommandBufferLevel, CommandBufferUsageFlags, CommandPool,
+    CommandPoolCreateFlags, CommandPoolCreateInfo, Fence, Format, ImageLayout, PipelineBindPoint, PipelineStageFlags, RenderPass,
+    RenderPassCreateInfo, SampleCountFlags, SubmitInfo, SubpassDependency, SubpassDescription, SUBPASS_EXTERNAL,
 };
+
+use crate::vulkan::vulkan::MAX_FRAMES_IN_FLIGHT;
 
 use super::device_and_queues::{BigusDevice, QueueFamilyIndices};
 
@@ -78,8 +79,21 @@ impl BigusDevice {
                 .free_command_buffers(*command_pool, &[command_buffer]);
         };
     }
-}
 
+    pub(super) fn create_command_buffers(&self, command_pool: CommandPool) -> Vec<CommandBuffer> {
+        unsafe {
+            self.dev
+                .allocate_command_buffers(&CommandBufferAllocateInfo {
+                    command_pool,
+                    level: CommandBufferLevel::PRIMARY,
+                    command_buffer_count: MAX_FRAMES_IN_FLIGHT as u32,
+                    ..Default::default()
+                })
+                .unwrap()
+        }
+    }
+
+}
 /*
 impl CommandPool {
     pub fn new(dev: BigusDevice, surface: Arc<Surface>) -> Self {

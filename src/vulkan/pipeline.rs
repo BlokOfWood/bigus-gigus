@@ -1,20 +1,10 @@
 use std::ptr::null;
 
 use ash::vk::{
-    ColorComponentFlags, CompareOp, CullModeFlags, DescriptorPool, DescriptorPoolCreateInfo,
-    DescriptorPoolSize, DescriptorSetLayout, DescriptorSetLayoutBinding,
-    DescriptorSetLayoutCreateInfo, DescriptorType, DynamicState, FrontFace,
-    GraphicsPipelineCreateInfo, LogicOp, Pipeline, PipelineCache,
-    PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo,
-    PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo,
-    PipelineInputAssemblyStateCreateInfo, PipelineLayoutCreateInfo,
-    PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo,
-    PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo,
-    PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, RenderPass, SampleCountFlags,
-    ShaderStageFlags, FALSE, TRUE,
+    Buffer, ColorComponentFlags, CompareOp, CullModeFlags, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPool, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, DynamicState, FrontFace, GraphicsPipelineCreateInfo, ImageLayout, ImageView, LogicOp, Pipeline, PipelineCache, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, RenderPass, SampleCountFlags, Sampler, ShaderStageFlags, WriteDescriptorSet, FALSE, TRUE
 };
 
-use crate::vulkan::vulkan::MAX_FRAMES_IN_FLIGHT;
+use crate::vulkan::{ubo::UniformBufferObject, vulkan::MAX_FRAMES_IN_FLIGHT};
 
 use super::{buffers::VertexBuffer, device_and_queues::BigusDevice, shader::Shaders};
 
@@ -79,42 +69,74 @@ impl BigusDevice {
                 .unwrap()
         }
     }
-}
-/*
-pub(super) fn create_descriptor_sets(
-    layout: Arc<DescriptorSetLayout>,
-    uniform_buffers: &[Subbuffer<UniformBufferObject>], // Pass in the buffersr_sets(
-    device: Arc<Device>,
-    image_view: Arc<ImageView>,
-    sampler: Arc<Sampler>,
-) -> Vec<Arc<PersistentDescriptorSet>> {
-    let descriptor_set_allocator =
-        StandardDescriptorSetAllocator::new(device.clone(), Default::default());
-    let num_sets = uniform_buffers.len();
-    let mut descriptor_sets: Vec<Arc<PersistentDescriptorSet>> = Vec::new();
+    pub(super) fn create_descriptor_sets(
+        &self,
+        descriptor_set_layouts: DescriptorSetLayout,
+        descriptor_pool: DescriptorPool,
+        uniform_buffers: &Vec<Buffer>,
+        texture_image_view: ImageView,
+        texture_sampler: Sampler,
+    ) -> Vec<DescriptorSet> {
+        let layouts = [descriptor_set_layouts; MAX_FRAMES_IN_FLIGHT];
 
-    for i in 0..num_sets {
-        let set = PersistentDescriptorSet::new(
-            &descriptor_set_allocator,
-            layout.clone(),
-            [
-                WriteDescriptorSet::buffer(0, uniform_buffers[i].clone()),
-                WriteDescriptorSet::image_view_sampler(1, image_view.clone(), sampler.clone()),
-            ],
-            [],
-        )
-        .unwrap(); // Handle potential errors
-        descriptor_sets.push(set);
+        let descriptor_sets = unsafe {
+            self
+                .dev
+                .allocate_descriptor_sets(&DescriptorSetAllocateInfo {
+                    descriptor_pool,
+                    descriptor_set_count: layouts.len() as u32,
+                    p_set_layouts: layouts.as_ptr(),
+                    ..Default::default()
+                })
+                .unwrap()
+        };
+
+        for i in 0..MAX_FRAMES_IN_FLIGHT {
+            let buffer_info = DescriptorBufferInfo {
+                buffer: uniform_buffers[i],
+                offset: 0,
+                range: size_of::<UniformBufferObject>() as u64,
+            };
+
+            let image_info = DescriptorImageInfo {
+                image_layout: ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                image_view: texture_image_view,
+                sampler: texture_sampler,
+            };
+
+            let descriptor_writes = [
+                WriteDescriptorSet {
+                    dst_set: descriptor_sets[i],
+                    dst_binding: 0,
+                    dst_array_element: 0,
+                    descriptor_type: DescriptorType::UNIFORM_BUFFER,
+                    descriptor_count: 1,
+                    p_buffer_info: &buffer_info,
+                    ..Default::default()
+                },
+                WriteDescriptorSet {
+                    dst_set: descriptor_sets[i],
+                    dst_binding: 1,
+                    dst_array_element: 0,
+                    descriptor_type: DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    descriptor_count: 1,
+                    p_image_info: &image_info,
+                    ..Default::default()
+                },
+            ];
+
+            unsafe { self.dev.update_descriptor_sets(&descriptor_writes, &[]) };
+        }
+
+        descriptor_sets
     }
-
-    descriptor_sets
 }
-*/
+
 pub(super) fn create_graphics_pipeline(
     device: &BigusDevice,
     render_pass: RenderPass,
     descriptor_set_layouts: Vec<DescriptorSetLayout>,
-) -> Pipeline {
+) -> (Pipeline, PipelineLayout) {
     let shaders = Shaders::new(&device, "src/shaders/vert.spv", "src/shaders/frag.spv");
 
     let vert_shader_stage_info = PipelineShaderStageCreateInfo {
@@ -247,5 +269,5 @@ pub(super) fn create_graphics_pipeline(
     unsafe { device.dev.destroy_shader_module(shaders.frag_shader, None) };
     unsafe { device.dev.destroy_shader_module(shaders.vert_shader, None) };
 
-    graphics_pipeline
+    (graphics_pipeline, pipeline_layout)
 }

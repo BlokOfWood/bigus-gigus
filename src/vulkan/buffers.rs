@@ -5,8 +5,17 @@ use ash::vk::{
     VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate,
 };
 
-use crate::vulkan::{
-    device_and_queues::BigusDevice, ubo::UniformBufferObject, vulkan::MAX_FRAMES_IN_FLIGHT,
+use crate::{
+    math::{
+        graphics_ops::{look_at, perspective},
+        quaternion::Quaternion,
+        vector::{Vector3, VECTOR3_ZERO},
+    },
+    vulkan::{
+        device_and_queues::BigusDevice,
+        ubo::UniformBufferObject,
+        vulkan::{VulkanRenderer, MAX_FRAMES_IN_FLIGHT},
+    },
 };
 
 use std::{mem::offset_of, os::raw::c_void};
@@ -16,11 +25,6 @@ pub struct Vertex {
     pos: [f32; 3],
     color: [f32; 3],
     tex_coord: [f32; 2],
-}
-
-#[repr(transparent)]
-pub struct VertexData {
-    pub vertices: [Vertex; 8],
 }
 
 pub const VERTICES: [Vertex; 8] = [
@@ -306,7 +310,7 @@ impl BigusDevice {
         let mut uniform_buffer_memories = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
         let mut uniform_buffers_mapped = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
 
-        for i in 0..MAX_FRAMES_IN_FLIGHT {
+        for _ in 0..MAX_FRAMES_IN_FLIGHT {
             let (uniform_buffer, uniform_buffer_memory) = self.create_buffer(
                 buffer_size,
                 BufferUsageFlags::UNIFORM_BUFFER,
@@ -334,22 +338,26 @@ impl BigusDevice {
         )
     }
 }
-/*
+
 impl VulkanRenderer {
-    pub(super) fn update_uniform_buffer(&mut self, image_index: usize, aspect_ratio: f32) {
+    pub(super) fn update_uniform_buffer(&mut self, current_frame: usize, aspect_ratio: f32) {
         let elapsed_time = self.start_time.elapsed();
 
-        let mut uniform_buffer = self.uniform_buffers[image_index].write().unwrap();
+        let uniform_buffer_new_contents = UniformBufferObject {
+            model: Quaternion::new(Vector3::new(0.0, 0.0, 1.0), elapsed_time.as_secs_f32())
+                .into_rotation_matrix(),
+            view: look_at(
+                VECTOR3_ZERO,
+                Vector3::new(0.0, elapsed_time.as_secs_f32().sin() * 5.0, 2.0),
+            ),
+            proj: perspective(60.0, aspect_ratio, 0.1, 100.0),
+        };
 
-        uniform_buffer.model =
-            Quaternion::new(Vector3::new(0.0, 0.0, 1.0), elapsed_time.as_secs_f32())
-                .into_rotation_matrix();
-
-        uniform_buffer.view = look_at(
-            VECTOR3_ZERO,
-            Vector3::new(0.0, elapsed_time.as_secs_f32().sin() * 5.0, 2.0),
-        );
-        uniform_buffer.proj = perspective(60.0, aspect_ratio, 0.1, 100.0);
+        unsafe {
+            self.uniform_buffers_mapped[current_frame].copy_from(
+                &uniform_buffer_new_contents as *const _ as *const c_void,
+                size_of::<UniformBufferObject>(),
+            );
+        }
     }
 }
-*/

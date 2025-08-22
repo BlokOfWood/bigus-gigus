@@ -1,9 +1,17 @@
-use std::{ffi::CStr, sync::Arc};
+use std::{ffi::CStr, os::raw::c_void, sync::Arc, time::Instant, u64};
 
 use ash::{
-    vk::{self, ApplicationInfo, KHR_SWAPCHAIN_NAME},
+    vk::{
+        self, ApplicationInfo, Buffer, ClearColorValue, ClearDepthStencilValue, ClearValue,
+        CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, DescriptorSet,
+        DeviceMemory, Extent2D, Fence, Framebuffer, Image, ImageView, IndexType, Offset2D,
+        Pipeline, PipelineBindPoint, PipelineLayout, PipelineStageFlags, PresentInfoKHR, Rect2D,
+        RenderPass, RenderPassBeginInfo, Result, Semaphore, SubmitInfo, SubpassContents,
+        SurfaceKHR, SwapchainKHR, Viewport, KHR_SWAPCHAIN_NAME,
+    },
     Entry, Instance,
 };
+use image::math::Rect;
 use winit::{
     event_loop::ActiveEventLoop,
     raw_window_handle::{HasDisplayHandle, HasWindowHandle},
@@ -11,30 +19,18 @@ use winit::{
 };
 
 use crate::vulkan::{
+    buffers::INDICES,
     command_pool::create_render_pass,
     device_and_queues::QueueFamilyIndices,
-    image::{
-        create_depth_resources, create_image_views, create_texture_image,
-        create_texture_image_view, create_texture_sampler,
-    },
+    image::{create_texture_image, create_texture_image_view, create_texture_sampler},
     pipeline::{create_descriptor_set_layout, create_graphics_pipeline},
-    swap_chain::{create_frame_buffers, create_swap_chain},
+    ubo::UniformBufferObject,
     window::{create_surface, enumerate_required_extensions},
 };
 
-use crate::vulkan::device_and_queues::BigusDevice;
+use ash::khr::surface::Instance as SurfaceInstance;
 
-/*use super::{
-    buffers::{create_index_buffer, create_uniform_buffers, create_vertex_buffer},
-    command_pool::{create_render_pass, CommandPool},
-    device_and_queues::QueueFamilies,
-    image::{
-        create_image_views, create_texture_image, create_texture_image_view, create_texture_sampler,
-    },
-    pipeline::{create_descriptor_set_layout, create_descriptor_sets, create_graphics_pipeline},
-    swap_chain::{create_frame_buffers, create_swap_chain},
-    ubo::UniformBufferObject,
-};*/
+use crate::vulkan::device_and_queues::BigusDevice;
 
 const ENGINE_NAME: &str = "Very cool engine";
 const APPLICATION_NAME: &str = "Very cool application";
@@ -43,26 +39,37 @@ pub(super) const REQUIRED_EXTENSIONS: [&CStr; 1] = [KHR_SWAPCHAIN_NAME];
 pub(super) const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 pub struct VulkanRenderer {
-    pub(super) inst: Instance,
-    /*pub(super) device: Arc<BigusDevice>,
-    queues: QueueFamilies,
-    pub(super) surface: Arc<Surface>,
-    pub(super) swap_chain: Arc<Swapchain>,
-    pub(super) images: Vec<Arc<Image>>,
-    pub(super) image_format: Format,
-    pub(super) image_extent: [u32; 2],
-    pub(super) image_views: Vec<Arc<ImageView>>,
-    pub(super) depth_image_view: Arc<ImageView>,
-    pub(super) render_pass: Arc<RenderPass>,
-    graphics_pipeline: Arc<Pipeline>,
-    vertex_buffer: Arc<Buffer>,
-    index_buffer: Arc<Buffer>,
+    pub(super) entry: Entry,
+    pub(super) instance: Instance,
+    pub(super) device: BigusDevice,
+    pub(super) swapchain: SwapchainKHR,
+    pub(super) swapchain_extent: Extent2D,
+
+    pub(super) graphics_pipeline: Pipeline,
+    pipeline_layout: PipelineLayout,
+    descriptor_sets: Vec<DescriptorSet>,
+
+    pub(super) render_pass: RenderPass,
+    pub(super) window: Arc<Window>,
+    pub(super) surface_instance: SurfaceInstance,
+    pub(super) surface: SurfaceKHR,
+    pub(super) depth_image_view: ImageView,
+    pub(super) depth_image: Image,
+    pub(super) depth_image_memory: DeviceMemory,
+    pub(super) framebuffers: Vec<Framebuffer>,
+    pub(super) swapchain_image_views: Vec<ImageView>,
     pub(super) uniform_buffers: Vec<Buffer>,
-    descriptor_sets: Vec<Arc<DescriptorSet>>,
-    pub(super) frame_buffers: Vec<Arc<Framebuffer>>,
-    command_pool: CommandPool,
-    fences: Vec<Option<Arc<Fence>>>,
-    pub(super) start_time: Instant,*/
+    pub(super) uniform_buffers_mapped: Vec<*mut c_void>,
+    current_frame: u32,
+    in_flight_fences: Vec<Fence>,
+    image_available_semaphores: Vec<Semaphore>,
+    render_finished_semaphores: Vec<Semaphore>,
+
+    vertex_buffer: Buffer,
+    index_buffer: Buffer,
+
+    pub(super) start_time: Instant,
+    pub(super) command_buffers: Vec<CommandBuffer>,
 }
 
 impl VulkanRenderer {
@@ -116,7 +123,7 @@ impl VulkanRenderer {
             ..Default::default()
         };
 
-        let inst = unsafe {
+        let instance = unsafe {
             entry
                 .create_instance(&create_info, None)
                 .expect("Vulkan unavailable")
@@ -130,58 +137,46 @@ impl VulkanRenderer {
         );
 
         let surface = unsafe {
-            create_surface(
-                &entry,
-                &inst,
-                window.display_handle().unwrap().into(),
-                window.window_handle().unwrap().as_raw(),
-                None,
-            )
-            .expect("Failed to create surface from window.")
+            create_surface(&entry, &instance, window.clone(), None)
+                .expect("Failed to create surface from window.")
         };
 
-        let bigus_device = BigusDevice::new(&entry, &inst, surface);
+        let surface_instance = SurfaceInstance::new(&entry, &instance);
 
-        let queue_family_indices =
-            QueueFamilyIndices::find_queue_families(&entry, &inst, bigus_device.phys_dev, surface);
+        let bigus_device = BigusDevice::new(&instance, surface, surface_instance.clone());
 
-        let (swap_chain, images, image_format, image_extent) = create_swap_chain(
-            ash::khr::swapchain::Device::new(&inst, &bigus_device.dev),
+        let queue_family_indices = QueueFamilyIndices::find_queue_families(
+            &instance,
             bigus_device.phys_dev,
-            ash::khr::surface::Instance::new(&entry, &inst),
+            surface,
+            &surface_instance,
+        );
+
+        let (swapchain, images, image_format, image_extent) = bigus_device.create_swap_chain(
+            &surface_instance,
             surface,
             [window.inner_size().width, window.inner_size().height],
             &queue_family_indices,
         );
 
-        let image_views = create_image_views(&bigus_device, images, image_format.format);
+        let image_views = bigus_device.create_image_views(images, image_format.format);
 
-        let (depth_image_view, depth_image_memory, depth_image_format) = create_depth_resources(
-            &inst,
-            &bigus_device,
-            [image_extent.width, image_extent.height],
-        );
+        let descriptor_set_layout = create_descriptor_set_layout(&bigus_device);
+
+        let command_pool = bigus_device.create_command_pool(&queue_family_indices);
+
+        let (depth_image, depth_image_view, depth_image_memory, depth_image_format) =
+            bigus_device.create_depth_resources([image_extent.width, image_extent.height]);
 
         let render_pass =
             create_render_pass(&bigus_device, image_format.format, depth_image_format);
 
-        let descriptor_set_layout = create_descriptor_set_layout(&bigus_device);
-
-        let graphics_pipeline =
+        let (graphics_pipeline, pipeline_layout) =
             create_graphics_pipeline(&bigus_device, render_pass, vec![descriptor_set_layout]);
 
-        let command_pool = bigus_device.create_command_pool(&queue_family_indices);
-
-        let depth_resources = create_depth_resources(
-            &inst,
-            &bigus_device,
-            [image_extent.width, image_extent.height],
-        );
-
-        let frame_buffers = create_frame_buffers(
-            &bigus_device,
+        let framebuffers = bigus_device.create_frame_buffers(
             render_pass.clone(),
-            image_views,
+            &image_views,
             depth_image_view.clone(),
             image_extent,
         );
@@ -193,122 +188,269 @@ impl VulkanRenderer {
         let image_sampler = create_texture_sampler(&bigus_device);
 
         let (vertex_buffer, vertex_buffer_memory) =
-            &bigus_device.create_vertex_buffer(&command_pool);
+            bigus_device.create_vertex_buffer(&command_pool);
 
-        let (index_buffer, index_buffer_memory) = &bigus_device.create_index_buffer(&command_pool);
+        let (index_buffer, index_buffer_memory) = bigus_device.create_index_buffer(&command_pool);
 
-        let uniform_buffers = &bigus_device.create_uniform_buffers();
-        
-        let descriptor_pool = &bigus_device.create_descriptor_pool();
+        let (uniform_buffers, uniform_buffer_memories, uniform_buffers_mapped) =
+            bigus_device.create_uniform_buffers();
 
-        /*
-        let descriptor_sets = create_descriptor_sets(
-            descriptor_set_layout.clone(),
+        let descriptor_pool = bigus_device.create_descriptor_pool();
+
+        let descriptor_sets = bigus_device.create_descriptor_sets(
+            descriptor_set_layout,
+            descriptor_pool,
             &uniform_buffers,
-            device.device(),
-            image_view.clone(),
-            texture_sampler.clone(),
-        );*/
+            image_view,
+            image_sampler,
+        );
+
+        let command_buffers = bigus_device.create_command_buffers(command_pool);
+
+        let (image_available_semaphores, render_finished_semaphores, in_flight_fences) =
+            bigus_device.create_sync_objects();
 
         VulkanRenderer {
-            inst,
-            /*    fences: vec![None; (&images).len()],
-            device: Arc::new(device),
-            queues,
+            entry,
+            instance,
+            device: bigus_device,
             surface,
-            swap_chain,
-            images,
-            image_format,
-            image_extent,
-            image_views,
-            depth_image_view,
+            surface_instance,
+            window,
+            graphics_pipeline,
+            pipeline_layout,
+            descriptor_sets,
             render_pass,
+            swapchain,
             vertex_buffer,
             index_buffer,
-            descriptor_sets,
+            depth_image,
+            depth_image_memory,
+            depth_image_view,
+            framebuffers,
+            swapchain_image_views: image_views,
+            swapchain_extent: image_extent,
+            current_frame: 0,
+            in_flight_fences,
+            image_available_semaphores,
+            render_finished_semaphores,
             uniform_buffers,
-            graphics_pipeline,
-            frame_buffers,
-            command_pool,
-            start_time: Instant::now(),*/
+            uniform_buffers_mapped,
+            start_time: Instant::now(),
+            command_buffers,
         }
     }
 
-    /*pub fn draw_frame(&mut self) {
+    pub(super) fn record_command_buffer(
+        &self,
+        command_buffer: &CommandBuffer,
+        framebuffer: &Framebuffer,
+    ) {
+        unsafe {
+            self.device.dev.begin_command_buffer(
+                *command_buffer,
+                &CommandBufferBeginInfo {
+                    ..Default::default()
+                },
+            ).unwrap();
+        };
+
+        let clear_values = [
+            ClearValue {
+                color: ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 0.0],
+                },
+            },
+            ClearValue {
+                depth_stencil: ClearDepthStencilValue {
+                    depth: 1.0,
+                    stencil: 0,
+                },
+            },
+        ];
+
+        unsafe {
+            self.device.dev.cmd_begin_render_pass(
+                *command_buffer,
+                &RenderPassBeginInfo {
+                    render_pass: self.render_pass,
+                    framebuffer: *framebuffer,
+                    render_area: Rect2D {
+                        offset: Offset2D { x: 0, y: 0 },
+                        extent: self.swapchain_extent,
+                    },
+                    clear_value_count: clear_values.len() as u32,
+                    p_clear_values: clear_values.as_ptr(),
+                    ..Default::default()
+                },
+                SubpassContents::INLINE,
+            );
+
+            self.device.dev.cmd_bind_pipeline(
+                *command_buffer,
+                PipelineBindPoint::GRAPHICS,
+                self.graphics_pipeline,
+            );
+
+            self.device.dev.cmd_set_viewport(
+                *command_buffer,
+                0,
+                &[Viewport {
+                    x: 0.0,
+                    y: 0.0,
+                    width: self.swapchain_extent.width as f32,
+                    height: self.swapchain_extent.height as f32,
+                    min_depth: 0.0,
+                    max_depth: 1.0,
+                }],
+            );
+
+            self.device.dev.cmd_set_scissor(
+                *command_buffer,
+                0,
+                &[Rect2D {
+                    offset: Offset2D { x: 0, y: 0 },
+                    extent: self.swapchain_extent,
+                }],
+            );
+
+            self.device.dev.cmd_bind_vertex_buffers(
+                *command_buffer,
+                0,
+                &[self.vertex_buffer],
+                &[0],
+            );
+
+            self.device.dev.cmd_bind_index_buffer(
+                *command_buffer,
+                self.index_buffer,
+                0,
+                IndexType::UINT16,
+            );
+
+            self.device.dev.cmd_bind_descriptor_sets(
+                *command_buffer,
+                PipelineBindPoint::GRAPHICS,
+                self.pipeline_layout,
+                0,
+                &[self.descriptor_sets[self.current_frame as usize]],
+                &[],
+            );
+
+            self.device
+                .dev
+                .cmd_draw_indexed(*command_buffer, INDICES.len() as u32, 1, 0, 0, 0);
+
+            self.device.dev.cmd_end_render_pass(*command_buffer);
+
+            self.device.dev.end_command_buffer(*command_buffer).unwrap();
+        };
+    }
+
+    pub fn draw_frame(&mut self) {
         // Acquires an image from the swap chain to draw unto.
         // The swap chain is basically a buffer of images, where one of them is being displayed while we draw unto the other one.
         // Basically decouples presenting an image from drawing the image, so that we can sync with the monitor's refresh rate.
-        let (image_idx, _is_suboptimal, acquire_future) =
-            match acquire_next_image(self.swap_chain.clone(), None).map_err(Validated::unwrap) {
-                Ok(acquired_image_details) => acquired_image_details,
-                Err(VulkanError::OutOfDate) => {
-                    return;
-                }
-                Err(err) => {
-                    println!("Failed to acquire new image. Error: {}", err);
-                    return;
-                }
-            };
 
-        if let Some(image_fence) = &self.fences[image_idx as usize] {
-            image_fence.wait(None).unwrap();
-        }
-
-        self.update_uniform_buffer(
-            image_idx.try_into().unwrap(),
-            (self.image_extent[0] / self.image_extent[1]) as f32,
-        );
-
-        let command_buffer = self.command_pool.record_render_pass(
-            self.render_pass.clone(),
-            self.frame_buffers[image_idx as usize].clone(),
-            self.graphics_pipeline.clone(),
-            self.descriptor_sets[image_idx as usize].clone(),
-            self.image_extent,
-            self.vertex_buffer.clone(),
-            self.index_buffer.clone(),
-        );
-
-        let previous_future = match self.fences[image_idx as usize].clone() {
-            None => {
-                let mut now = sync::now(self.device.device());
-                now.cleanup_finished();
-                now.boxed()
-            }
-            Some(fence) => fence.boxed(),
+        unsafe {
+            self.device
+                .dev
+                .wait_for_fences(
+                    &[self.in_flight_fences[self.current_frame as usize]],
+                    true,
+                    1_000_000_000,
+                )
+                .unwrap()
         };
 
-        let command_execution_result = previous_future
-            .join(acquire_future)
-            .then_execute(self.queues.graphics_queue.clone(), command_buffer);
+        let result = unsafe {
+            self.device.swapchain_dev.acquire_next_image(
+                self.swapchain,
+                1 * 1_000_000_000,
+                self.image_available_semaphores[self.current_frame as usize],
+                Fence::null(),
+            )
+        };
 
-        let presentation_result = match command_execution_result {
-            Ok(future) => future
-                .then_swapchain_present(
-                    self.queues.graphics_queue.clone(),
-                    SwapchainPresentInfo::swapchain_image_index(self.swap_chain.clone(), image_idx),
-                )
-                .then_signal_fence_and_flush(),
-            Err(err) => {
-                print!("Failed to execute command buffer {}", err.to_string());
+        let (image_index, is_suboptimal) = match result {
+            Ok((image_idx, is_suboptimal)) => (image_idx, is_suboptimal),
+            Err(ash::vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                self.recreate_swap_chain();
                 return;
             }
+            Err(err) => panic!("Failed to acquire swap chain image!"),
         };
 
-        match presentation_result {
-            Ok(new_fence) => self.fences[image_idx as usize] = Some(Arc::new(new_fence)),
-            Err(err) => match err {
-                Validated::Error(err) => match err {
-                    VulkanError::OutOfDate => {
-                        return;
-                    }
-                    err => {
-                        println!("Failed to present image, Error: {}", err);
-                        return;
-                    }
+        let aspect_ratio =
+            self.window.inner_size().width as f32 / self.window.inner_size().height as f32;
+        self.update_uniform_buffer(self.current_frame as usize, aspect_ratio);
+
+        unsafe {
+            self.device
+                .dev
+                .reset_fences(&[self.in_flight_fences[self.current_frame as usize]])
+                .unwrap();
+        }
+
+        unsafe {
+            self.device
+                .dev
+                .reset_command_buffer(
+                    self.command_buffers[self.current_frame as usize],
+                    CommandBufferResetFlags::empty(),
+                )
+                .unwrap();
+            self.record_command_buffer(
+                &self.command_buffers[self.current_frame as usize],
+                &self.framebuffers[self.current_frame as usize],
+            );
+
+            self.device
+                .dev
+                .queue_submit(
+                    self.device.queues.graphics_queue,
+                    &[SubmitInfo {
+                        wait_semaphore_count: 1,
+                        p_wait_semaphores: &self.image_available_semaphores
+                            [self.current_frame as usize],
+                        p_wait_dst_stage_mask: &PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+
+                        command_buffer_count: 1,
+                        p_command_buffers: &self.command_buffers[self.current_frame as usize],
+
+                        signal_semaphore_count: 1,
+                        p_signal_semaphores: &self.render_finished_semaphores
+                            [self.current_frame as usize],
+                        ..Default::default()
+                    }],
+                    self.in_flight_fences[self.current_frame as usize],
+                )
+                .unwrap();
+
+            match self.device.swapchain_dev.queue_present(
+                self.device.queues.presentation_queue,
+                &PresentInfoKHR {
+                    wait_semaphore_count: 1,
+                    p_wait_semaphores: &self.render_finished_semaphores
+                        [self.current_frame as usize],
+
+                    swapchain_count: 1,
+                    p_swapchains: &self.swapchain,
+
+                    p_image_indices: &image_index,
+
+                    ..Default::default()
                 },
-                Validated::ValidationError(err) => println!("wee {}", err),
-            },
-        };
-    }*/
+            ) {
+                Ok(_) => {}
+                Err(Result::ERROR_OUT_OF_DATE_KHR) | Err(Result::SUBOPTIMAL_KHR) => {
+                    self.recreate_swap_chain();
+                    println!("recreate");
+                }
+                Err(e) => panic!("Failed to present swap chain image. Error: {}", e),
+            }
+
+            self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT as u32;
+        }
+    }
 }

@@ -1,10 +1,13 @@
 use std::ffi::c_void;
 
-use ash::{
-    vk::{
-        AccessFlags, BorderColor, BufferUsageFlags, CommandPool, CompareOp, DependencyFlags, DeviceMemory, Extent3D, Filter, Format, FormatFeatureFlags, Image, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageMemoryBarrier, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, MemoryAllocateInfo, MemoryMapFlags, MemoryPropertyFlags, PipelineStageFlags, SampleCountFlags, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, SharingMode, FALSE, QUEUE_FAMILY_IGNORED, TRUE
-    },
-    Instance,
+use ash::vk::{
+    AccessFlags, BorderColor, BufferUsageFlags, CommandPool, CompareOp, DependencyFlags,
+    DeviceMemory, Extent3D, Filter, Format, FormatFeatureFlags, Image, ImageAspectFlags,
+    ImageCreateInfo, ImageLayout, ImageMemoryBarrier, ImageSubresourceRange, ImageTiling,
+    ImageType, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, MemoryAllocateInfo,
+    MemoryMapFlags, MemoryPropertyFlags, PipelineStageFlags, SampleCountFlags, Sampler,
+    SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, SharingMode, FALSE,
+    QUEUE_FAMILY_IGNORED, TRUE,
 };
 
 use super::device_and_queues::BigusDevice;
@@ -236,55 +239,58 @@ impl BigusDevice {
 
         return unsafe { self.dev.create_image_view(&view_info, None).unwrap() };
     }
-}
 
-pub fn create_image_views(
-    device: &BigusDevice,
-    swap_chain_images: Vec<Image>,
-    swap_chain_image_format: Format,
-) -> Vec<ImageView> {
-    let mut image_views: Vec<ImageView> = Vec::with_capacity(swap_chain_images.len());
+    pub fn create_image_views(
+        &self,
+        swap_chain_images: Vec<Image>,
+        swap_chain_image_format: Format,
+    ) -> Vec<ImageView> {
+        let mut image_views: Vec<ImageView> = Vec::with_capacity(swap_chain_images.len());
 
-    for image in swap_chain_images {
-        image_views.push(device.create_image_view(
-            image,
-            swap_chain_image_format,
-            ImageAspectFlags::COLOR,
-        ));
+        for image in swap_chain_images {
+            image_views.push(self.create_image_view(
+                image,
+                swap_chain_image_format,
+                ImageAspectFlags::COLOR,
+            ));
+        }
+
+        image_views
     }
 
-    image_views
-}
+    pub fn create_depth_resources(
+        &self,
+        swap_chain_extent: [u32; 2],
+    ) -> (Image, ImageView, DeviceMemory, Format) {
+        let image_format = self.find_depth_format();
 
-pub fn create_depth_resources(
-    instance: &Instance,
-    device: &BigusDevice,
-    swap_chain_extent: [u32; 2],
-) -> (ImageView, DeviceMemory, Format) {
-    let image_format = find_depth_format(instance, &device);
+        let (depth_image, depth_image_memory) = self.create_image(
+            swap_chain_extent,
+            image_format,
+            ImageTiling::OPTIMAL,
+            ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+            MemoryPropertyFlags::DEVICE_LOCAL,
+        );
+        let depth_image_view =
+            self.create_image_view(depth_image, image_format, ImageAspectFlags::DEPTH);
 
-    let (depth_image, depth_image_memory) = device.create_image(
-        swap_chain_extent,
-        image_format,
-        ImageTiling::OPTIMAL,
-        ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
-        MemoryPropertyFlags::DEVICE_LOCAL,
-    );
-    let depth_image_view =
-        device.create_image_view(depth_image, image_format, ImageAspectFlags::DEPTH);
+        (
+            depth_image,
+            depth_image_view,
+            depth_image_memory,
+            image_format,
+        )
+    }
 
-    (depth_image_view, depth_image_memory, image_format)
-}
-
-fn find_depth_format(instance: &Instance, device: &BigusDevice) -> Format {
-    device.find_supported_format(
-        instance,
-        vec![
-            Format::D32_SFLOAT,
-            Format::D32_SFLOAT_S8_UINT,
-            Format::D24_UNORM_S8_UINT,
-        ],
-        ImageTiling::OPTIMAL,
-        FormatFeatureFlags::DEPTH_STENCIL_ATTACHMENT,
-    )
+    fn find_depth_format(&self) -> Format {
+        self.find_supported_format(
+            vec![
+                Format::D32_SFLOAT,
+                Format::D32_SFLOAT_S8_UINT,
+                Format::D24_UNORM_S8_UINT,
+            ],
+            ImageTiling::OPTIMAL,
+            FormatFeatureFlags::DEPTH_STENCIL_ATTACHMENT,
+        )
+    }
 }

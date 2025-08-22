@@ -1,4 +1,4 @@
-use std::os::raw::c_char;
+use std::{os::raw::c_char, sync::Arc};
 
 use ash::{
     ext::metal_surface,
@@ -7,7 +7,10 @@ use ash::{
     vk::{self},
     Entry, Instance,
 };
-use winit::raw_window_handle::{RawDisplayHandle, RawWindowHandle};
+use winit::{
+    raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle},
+    window::Window,
+};
 
 pub fn enumerate_required_extensions(
     display_handle: RawDisplayHandle,
@@ -58,10 +61,12 @@ pub fn enumerate_required_extensions(
 pub unsafe fn create_surface(
     entry: &Entry,
     instance: &Instance,
-    display_handle: RawDisplayHandle,
-    window_handle: RawWindowHandle,
+    window: Arc<Window>,
     allocation_callbacks: Option<&vk::AllocationCallbacks>,
 ) -> VkResult<vk::SurfaceKHR> {
+    let display_handle = window.display_handle().unwrap().into();
+    let window_handle = window.window_handle().unwrap().as_raw();
+
     match (display_handle, window_handle) {
         (RawDisplayHandle::Windows(_), RawWindowHandle::Win32(window)) => {
             let surface_desc = vk::Win32SurfaceCreateInfoKHR::default()
