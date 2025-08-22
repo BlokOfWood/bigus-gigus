@@ -185,20 +185,24 @@ impl BigusDevice {
                 }],
             )
         };
+
+        self.end_single_time_commands(command_pool, command_buffer);
     }
 
     pub fn copy_into_buffer<T>(&self, buffer_memory: DeviceMemory, src_data: &[T]) {
+        let src_data_size = src_data.len() * size_of_val(&src_data[0]);
+
         unsafe {
             let data = self
                 .dev
                 .map_memory(
                     buffer_memory,
                     0,
-                    (src_data.len() * size_of_val(&src_data[0])) as u64,
+                    src_data_size as u64,
                     MemoryMapFlags::empty(),
                 )
                 .unwrap();
-            data.copy_from(src_data.as_ptr() as *mut c_void, src_data.len());
+            data.copy_from(src_data.as_ptr() as *mut c_void, src_data_size);
 
             self.dev.unmap_memory(buffer_memory);
         };
@@ -267,15 +271,15 @@ impl BigusDevice {
         self.copy_buffer(command_pool, staging_buffer, vertex_buffer, buffer_size);
 
         unsafe {
-            self.dev.destroy_buffer(staging_buffer, None);
-            self.dev.free_memory(staging_buffer_memory, None);
+            //self.dev.destroy_buffer(staging_buffer, None);
+            //self.dev.free_memory(staging_buffer_memory, None);
         };
 
         (vertex_buffer, vertex_buffer_memory)
     }
 
     pub(crate) fn create_index_buffer(&self, command_pool: &CommandPool) -> (Buffer, DeviceMemory) {
-        let buffer_size = (size_of::<Vertex>() * INDICES.len()) as u64;
+        let buffer_size = (size_of::<u16>() * INDICES.len()) as u64;
 
         let (staging_buffer, staging_buffer_memory) = self.create_buffer(
             buffer_size,
