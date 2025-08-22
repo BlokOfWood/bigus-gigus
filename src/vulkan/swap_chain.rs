@@ -6,7 +6,7 @@ use ash::vk::{
     TRUE,
 };
 
-use crate::vulkan::vulkan::VulkanRenderer;
+use crate::vulkan::vulkan::{VulkanRenderer, MAX_FRAMES_IN_FLIGHT};
 use crate::vulkan::window::create_surface;
 
 use super::device_and_queues::{BigusDevice, QueueFamilyIndices};
@@ -107,7 +107,7 @@ impl BigusDevice {
         let min_image_count = swap_chain_support.capabilities.min_image_count;
         let max_image_count = swap_chain_support.capabilities.max_image_count;
 
-        let image_count = if max_image_count > 0 && min_image_count + 1 > max_image_count {
+        let _image_count = if max_image_count > 0 && min_image_count + 1 > max_image_count {
             max_image_count
         } else {
             min_image_count + 1
@@ -115,7 +115,7 @@ impl BigusDevice {
 
         let mut create_info = SwapchainCreateInfoKHR {
             surface,
-            min_image_count: image_count,
+            min_image_count: MAX_FRAMES_IN_FLIGHT as u32,
             image_format: surface_format.format,
             image_color_space: surface_format.color_space,
             image_extent: swap_extent,
@@ -214,7 +214,7 @@ impl VulkanRenderer {
 
         let image_views = self.device.create_image_views(images, image_format.format);
 
-        let (depth_image, depth_image_view, depth_image_memory, depth_image_format) = self
+        let (depth_image, depth_image_view, depth_image_memory, _depth_image_format) = self
             .device
             .create_depth_resources([image_extent.width, image_extent.height]);
         self.depth_image = depth_image;

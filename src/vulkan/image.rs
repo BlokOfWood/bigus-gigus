@@ -42,7 +42,7 @@ pub fn create_texture_image(device: &BigusDevice, command_pool: &CommandPool) ->
 
     drop(open_image);
 
-    let (texture_image, texture_image_memory) = device.create_image(
+    let (texture_image, _texture_image_memory) = device.create_image(
         image_extent,
         Format::R8G8B8A8_SRGB,
         ImageTiling::OPTIMAL,

@@ -1,4 +1,4 @@
-use std::{ffi::CStr, os::raw::c_void, sync::Arc, time::Instant, u64};
+use std::{ffi::CStr, os::raw::c_void, sync::Arc, time::Instant};
 
 use ash::{
     vk::{
@@ -11,12 +11,7 @@ use ash::{
     },
     Entry, Instance,
 };
-use image::math::Rect;
-use winit::{
-    event_loop::ActiveEventLoop,
-    raw_window_handle::{HasDisplayHandle, HasWindowHandle},
-    window::Window,
-};
+use winit::{event_loop::ActiveEventLoop, raw_window_handle::HasDisplayHandle, window::Window};
 
 use crate::vulkan::{
     buffers::INDICES,
@@ -24,7 +19,6 @@ use crate::vulkan::{
     device_and_queues::QueueFamilyIndices,
     image::{create_texture_image, create_texture_image_view, create_texture_sampler},
     pipeline::{create_descriptor_set_layout, create_graphics_pipeline},
-    ubo::UniformBufferObject,
     window::{create_surface, enumerate_required_extensions},
 };
 
@@ -58,7 +52,7 @@ pub struct VulkanRenderer {
     pub(super) depth_image_memory: DeviceMemory,
     pub(super) framebuffers: Vec<Framebuffer>,
     pub(super) swapchain_image_views: Vec<ImageView>,
-    pub(super) uniform_buffers: Vec<Buffer>,
+    pub(super) _uniform_buffers: Vec<Buffer>,
     pub(super) uniform_buffers_mapped: Vec<*mut c_void>,
     current_frame: u32,
     in_flight_fences: Vec<Fence>,
@@ -187,12 +181,12 @@ impl VulkanRenderer {
 
         let image_sampler = create_texture_sampler(&bigus_device);
 
-        let (vertex_buffer, vertex_buffer_memory) =
+        let (vertex_buffer, _vertex_buffer_memory) =
             bigus_device.create_vertex_buffer(&command_pool);
 
-        let (index_buffer, index_buffer_memory) = bigus_device.create_index_buffer(&command_pool);
+        let (index_buffer, _index_buffer_memory) = bigus_device.create_index_buffer(&command_pool);
 
-        let (uniform_buffers, uniform_buffer_memories, uniform_buffers_mapped) =
+        let (uniform_buffers, _uniform_buffer_memories, uniform_buffers_mapped) =
             bigus_device.create_uniform_buffers();
 
         let descriptor_pool = bigus_device.create_descriptor_pool();
@@ -234,7 +228,7 @@ impl VulkanRenderer {
             in_flight_fences,
             image_available_semaphores,
             render_finished_semaphores,
-            uniform_buffers,
+            _uniform_buffers: uniform_buffers,
             uniform_buffers_mapped,
             start_time: Instant::now(),
             command_buffers,
@@ -247,12 +241,15 @@ impl VulkanRenderer {
         framebuffer: &Framebuffer,
     ) {
         unsafe {
-            self.device.dev.begin_command_buffer(
-                *command_buffer,
-                &CommandBufferBeginInfo {
-                    ..Default::default()
-                },
-            ).unwrap();
+            self.device
+                .dev
+                .begin_command_buffer(
+                    *command_buffer,
+                    &CommandBufferBeginInfo {
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
         };
 
         let clear_values = [
@@ -372,13 +369,13 @@ impl VulkanRenderer {
             )
         };
 
-        let (image_index, is_suboptimal) = match result {
+        let (image_index, _is_suboptimal) = match result {
             Ok((image_idx, is_suboptimal)) => (image_idx, is_suboptimal),
             Err(ash::vk::Result::ERROR_OUT_OF_DATE_KHR) => {
                 self.recreate_swap_chain();
                 return;
             }
-            Err(err) => panic!("Failed to acquire swap chain image!"),
+            Err(err) => panic!("Failed to acquire swap chain image! Error: {}", err),
         };
 
         let aspect_ratio =
