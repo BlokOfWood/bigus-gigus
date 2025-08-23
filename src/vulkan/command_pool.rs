@@ -148,8 +148,8 @@ pub(super) fn create_render_pass(
         src_subpass: SUBPASS_EXTERNAL,
         dst_subpass: 0,
         src_stage_mask: PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
-            | PipelineStageFlags::EARLY_FRAGMENT_TESTS,
-        src_access_mask: AccessFlags::empty(),
+            | PipelineStageFlags::LATE_FRAGMENT_TESTS,
+        src_access_mask: AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
         dst_stage_mask: PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
             | PipelineStageFlags::EARLY_FRAGMENT_TESTS,
         dst_access_mask: AccessFlags::COLOR_ATTACHMENT_WRITE

@@ -271,8 +271,8 @@ impl BigusDevice {
         self.copy_buffer(command_pool, staging_buffer, vertex_buffer, buffer_size);
 
         unsafe {
-            //self.dev.destroy_buffer(staging_buffer, None);
-            //self.dev.free_memory(staging_buffer_memory, None);
+            self.dev.destroy_buffer(staging_buffer, None);
+            self.dev.free_memory(staging_buffer_memory, None);
         };
 
         (vertex_buffer, vertex_buffer_memory)
@@ -348,11 +348,11 @@ impl VulkanRenderer {
         let elapsed_time = self.start_time.elapsed();
 
         let uniform_buffer_new_contents = UniformBufferObject {
-            model: Quaternion::new(Vector3::new(0.0, 0.0, 1.0), elapsed_time.as_secs_f32())
+            model: Quaternion::new(Vector3::new(0.0, 0.0, 1.0), 3.14/*elapsed_time.as_secs_f32()*/)
                 .into_rotation_matrix(),
             view: look_at(
                 VECTOR3_ZERO,
-                Vector3::new(0.0, elapsed_time.as_secs_f32().sin() * 5.0, 2.0),
+                Vector3::new(0.0, elapsed_time.as_secs_f32().sin() * 3.0, 2.0),
             ),
             proj: perspective(60.0, aspect_ratio, 0.1, 100.0),
         };
