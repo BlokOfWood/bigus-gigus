@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 use super::{matrix::Matrix4, vector::Vector3};
 
 const WORLD_UP: Vector3 = Vector3 {
@@ -43,17 +45,19 @@ pub fn look_at(center: Vector3, eye: Vector3) -> Matrix4 {
 }
 
 pub fn perspective(horizontal_fov: f32, aspect_ratio: f32, near: f32, far: f32) -> Matrix4 {
+    let s = 1.0 / ((horizontal_fov / 2.0) * (PI / 180.0));
+
     let tangent = horizontal_fov.to_radians() / 2.0;
     let right = near * tangent;
     let top = right / aspect_ratio;
 
     let mut output = Matrix4::new();
 
-    output[[0, 0]] = near / right;
-    output[[1, 1]] = -1.0 * near / top;
-    output[[2, 2]] = near / (far - near);
-    output[[2, 3]] = -1.0;
-    output[[3, 2]] = (far * near) / (far - near);
+    output[[0, 0]] = s;
+    output[[1, 1]] = s * -1.0;
+    output[[2, 2]] = -far / (far - near);
+    output[[3, 2]] = -1.0;
+    output[[2, 3]] = -(far * near) / (far - near);
 
     output
 }

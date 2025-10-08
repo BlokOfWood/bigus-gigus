@@ -9,6 +9,7 @@ ahash = "*"
 image = { version = "0.25" }
 smallvec = "*"
 ash = {version = "0.38", features = ["debug","loaded","linked","std"]}
+tobj = "4.0"
 
 [profile.release]
 debug = 1

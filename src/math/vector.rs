@@ -43,6 +43,10 @@ impl Vector3 {
             self.x * rhs.y - self.y * rhs.x,
         )
     }
+
+    pub fn dot(&self, rhs: Vector3) -> f32 {
+        return self.x * rhs.x + self.y * rhs.y + self.z * rhs.z;
+    }
 }
 
 impl PartialEq for Vector3 {
