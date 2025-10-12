@@ -1,6 +1,6 @@
 mod app;
-mod vulkan;
 mod math;
+mod vulkan;
 
 fn main() {
     let mut app = app::App::new();

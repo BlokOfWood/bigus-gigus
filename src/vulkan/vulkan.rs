@@ -1,4 +1,9 @@
-use std::{ffi::CStr, os::raw::c_void, sync::Arc, time::Instant};
+use std::{
+    ffi::{CStr, CString},
+    os::raw::c_void,
+    sync::Arc,
+    time::Instant,
+};
 
 use ash::{
     vk::{
@@ -97,16 +102,23 @@ impl VulkanRenderer {
             enumerate_required_extensions(event_loop.display_handle().unwrap().into())
                 .expect("Failed to enumerate required extensions.");
 
-        let mut enabled_layers = Vec::new();
         let mut enabled_extensions = Vec::new();
         window_required_extensions
             .iter()
             .for_each(|extension| enabled_extensions.push(*extension));
 
+        let mut enabled_layers_cnames = Vec::new();
+
         if cfg!(debug_assertions) {
             println!("Enabling validation layers");
-            enabled_layers.push("VK_LAYER_KHRONOS_validation".as_ptr() as *const i8);
+            let cstr = CString::new("VK_LAYER_KHRONOS_validation").unwrap();
+            enabled_layers_cnames.push(cstr); // Store the CString so it lives long enough
         }
+
+        let enabled_layers: Vec<*const i8> = enabled_layers_cnames
+            .iter()
+            .map(|layer| layer.as_ptr())
+            .collect();
 
         let create_info = vk::InstanceCreateInfo {
             enabled_layer_count: enabled_layers.len() as u32,
