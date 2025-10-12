@@ -1,7 +1,18 @@
-use std::ptr::null;
+use std::{ffi::CString, ptr::null};
 
 use ash::vk::{
-    Buffer, ColorComponentFlags, CompareOp, CullModeFlags, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPool, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, DynamicState, FrontFace, GraphicsPipelineCreateInfo, ImageLayout, ImageView, LogicOp, Pipeline, PipelineCache, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, RenderPass, SampleCountFlags, Sampler, ShaderStageFlags, WriteDescriptorSet, FALSE, TRUE
+    Buffer, ColorComponentFlags, CompareOp, CullModeFlags, DescriptorBufferInfo,
+    DescriptorImageInfo, DescriptorPool, DescriptorPoolCreateInfo, DescriptorPoolSize,
+    DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding,
+    DescriptorSetLayoutCreateInfo, DescriptorType, DynamicState, FrontFace,
+    GraphicsPipelineCreateInfo, ImageLayout, ImageView, LogicOp, Pipeline, PipelineCache,
+    PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo,
+    PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo,
+    PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo,
+    PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo,
+    PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo,
+    PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, RenderPass, SampleCountFlags,
+    Sampler, ShaderStageFlags, WriteDescriptorSet, FALSE, TRUE,
 };
 
 use crate::vulkan::{ubo::UniformBufferObject, vulkan::MAX_FRAMES_IN_FLIGHT};
@@ -80,8 +91,7 @@ impl BigusDevice {
         let layouts = [descriptor_set_layouts; MAX_FRAMES_IN_FLIGHT];
 
         let descriptor_sets = unsafe {
-            self
-                .dev
+            self.dev
                 .allocate_descriptor_sets(&DescriptorSetAllocateInfo {
                     descriptor_pool,
                     descriptor_set_count: layouts.len() as u32,
@@ -139,17 +149,20 @@ pub(super) fn create_graphics_pipeline(
 ) -> (Pipeline, PipelineLayout) {
     let shaders = Shaders::new(&device, "src/shaders/vert.spv", "src/shaders/frag.spv");
 
+    let vert_shader_c_name = CString::new("main").unwrap();
+    let frag_shader_c_name = CString::new("main").unwrap();
+
     let vert_shader_stage_info = PipelineShaderStageCreateInfo {
         stage: ShaderStageFlags::VERTEX,
         module: shaders.vert_shader,
-        p_name: "main".as_ptr() as *const i8,
+        p_name: vert_shader_c_name.as_ptr(),
         ..Default::default()
     };
 
     let frag_shader_stage_info = PipelineShaderStageCreateInfo {
         stage: ShaderStageFlags::FRAGMENT,
         module: shaders.frag_shader,
-        p_name: "main".as_ptr() as *const i8,
+        p_name: frag_shader_c_name.as_ptr(),
         ..Default::default()
     };
 
