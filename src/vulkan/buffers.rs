@@ -21,6 +21,7 @@ use crate::{
 use std::{mem::offset_of, os::raw::c_void};
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug)]
 pub struct Vertex {
     pos: [f32; 3],
     color: [f32; 3],
@@ -70,7 +71,7 @@ pub const VERTICES: [Vertex; 8] = [
     },
 ];
 
-pub const INDICES: [u16; 12] = [0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4];
+pub const INDICES: [u32; 12] = [0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4];
 
 pub struct VertexBuffer;
 
@@ -279,7 +280,7 @@ impl BigusDevice {
     }
 
     pub(crate) fn create_index_buffer(&self, command_pool: &CommandPool) -> (Buffer, DeviceMemory) {
-        let buffer_size = (size_of::<u16>() * INDICES.len()) as u64;
+        let buffer_size = (size_of::<u32>() * INDICES.len()) as u64;
 
         let (staging_buffer, staging_buffer_memory) = self.create_buffer(
             buffer_size,

@@ -19,7 +19,7 @@ use ash::{
 use winit::{event_loop::ActiveEventLoop, raw_window_handle::HasDisplayHandle, window::Window};
 
 use crate::vulkan::{
-    buffers::INDICES,
+    buffers::{INDICES, VERTICES, Vertex},
     command_pool::create_render_pass,
     device_and_queues::QueueFamilyIndices,
     image::{create_texture_image, create_texture_image_view, create_texture_sampler},
@@ -63,6 +63,9 @@ pub struct VulkanRenderer {
     in_flight_fences: Vec<Fence>,
     image_available_semaphores: Vec<Semaphore>,
     render_finished_semaphores: Vec<Semaphore>,
+
+    pub(super) vertices: Vec<Vertex>,
+    pub(super) indices: Vec<u32>,
 
     vertex_buffer: Buffer,
     index_buffer: Buffer,
@@ -228,6 +231,8 @@ impl VulkanRenderer {
             descriptor_sets,
             render_pass,
             swapchain,
+            vertices: VERTICES.to_vec(),
+            indices: INDICES.to_vec(),
             vertex_buffer,
             index_buffer,
             depth_image,
@@ -334,7 +339,7 @@ impl VulkanRenderer {
                 *command_buffer,
                 self.index_buffer,
                 0,
-                IndexType::UINT16,
+                IndexType::UINT32,
             );
 
             self.device.dev.cmd_bind_descriptor_sets(
