@@ -7,7 +7,7 @@ use ash::vk::{
 
 use crate::{
     math::{
-        graphics_ops::{look_at_with_roll, perspective},
+        graphics_ops::{look_at, perspective},
         quaternion::Quaternion,
         vector::{Vector3, VECTOR3_ZERO},
     },
@@ -347,12 +347,10 @@ impl BigusDevice {
 
 impl VulkanRenderer {
     pub(super) fn update_uniform_buffer(&mut self, current_frame: usize, aspect_ratio: f32) {
-        let (view, up_new) = look_at_with_roll(
+        let view= look_at(
             VECTOR3_ZERO,
             Vector3::new(self.x, self.y, self.z),
-            self.camera_up,
         );
-        self.camera_up = up_new;
 
         let uniform_buffer_new_contents = UniformBufferObject {
             model: Quaternion::new(Vector3::new(0.0 , 1.0, 0.0), 0.0/*elapsed_time.as_secs_f32()*/)

@@ -21,13 +21,12 @@ use winit::{
     raw_window_handle::HasDisplayHandle, window::Window,
 };
 
-use crate::math::vector::Vector3;
+use crate::{loaders::obj::Model, math::vector::Vector3};
 
 use crate::vulkan::{
     buffers::Vertex,
     command_pool::create_render_pass,
     device_and_queues::QueueFamilyIndices,
-    model::import_model,
     pipeline::{create_descriptor_set_layout, create_graphics_pipeline},
     window::{create_surface, enumerate_required_extensions},
 };
@@ -87,7 +86,7 @@ pub struct VulkanRenderer {
 
 impl VulkanRenderer {
     pub fn new(window: Arc<Window>, event_loop: &ActiveEventLoop) -> Self {
-        let (vertex_array, indices) = import_model("assets/models/viking_room.obj");
+        let model = Model::load_obj("assets/models/viking_room.obj");
 
         let entry = Entry::linked();
 
@@ -211,10 +210,10 @@ impl VulkanRenderer {
         let image_sampler = bigus_device.create_texture_sampler();
 
         let (vertex_buffer, _vertex_buffer_memory) =
-            bigus_device.create_vertex_buffer(&vertex_array, &command_pool);
+            bigus_device.create_vertex_buffer(&model.vertices, &command_pool);
 
         let (index_buffer, _index_buffer_memory) =
-            bigus_device.create_index_buffer(&indices, &command_pool);
+            bigus_device.create_index_buffer(&model.indices, &command_pool);
 
         let (uniform_buffers, _uniform_buffer_memories, uniform_buffers_mapped) =
             bigus_device.create_uniform_buffers();
@@ -246,8 +245,8 @@ impl VulkanRenderer {
             descriptor_sets,
             render_pass,
             swapchain,
-            vertices: vertex_array,
-            indices: indices,
+            vertices: model.vertices,
+            indices: model.indices,
             vertex_buffer,
             index_buffer,
             depth_image,
@@ -264,9 +263,9 @@ impl VulkanRenderer {
             uniform_buffers_mapped,
             start_time: Instant::now(),
             command_buffers,
-            x: 0.0,
-            y: 2.3,
-            z: -2.0,
+            x: -2.0,
+            y: -2.0,
+            z: 3.0,
             camera_up: Vector3::new(0.0, 1.0, 0.0),
         }
     }

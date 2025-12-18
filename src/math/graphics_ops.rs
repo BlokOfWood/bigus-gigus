@@ -14,103 +14,42 @@ const WORLD_RIGHT: Vector3 = Vector3 {
 pub fn look_at(center: Vector3, eye: Vector3) -> Matrix4 {
     let forward = (center - eye).normalize();
 
-    // Avoid a hard switch of the up vector near the pole (forward parallel to WORLD_UP),
-    // since that causes a visible discontinuity. Instead, smoothly blend WORLD_UP -> WORLD_RIGHT.
-    let pole = forward.dot(WORLD_UP).abs();
-    let t = smoothstep(0.95, 0.9995, pole);
-    let up_candidate = Vector3::new(
-        WORLD_UP.x * (1.0 - t) + WORLD_RIGHT.x * t,
-        WORLD_UP.y * (1.0 - t) + WORLD_RIGHT.y * t,
-        WORLD_UP.z * (1.0 - t) + WORLD_RIGHT.z * t,
-    )
-    .normalize();
+    let right = if forward.y.abs() > 0.999 {
+        let approx_up = forward.cross_product(WORLD_RIGHT).normalize();
+        approx_up.cross_product(forward).normalize()
+    } else {
+        forward.cross_product(WORLD_UP).normalize()
+    };
 
-    let right = forward.cross_product(up_candidate).normalize();
     let up = right.cross_product(forward).normalize();
 
-    let translation: Matrix4 = ([
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [-eye.x, -eye.y, -eye.z, 1.0],
+    let tx = -right.dot(eye);
+    let ty = -up.dot(eye);
+    let tz = forward.dot(eye);
+
+    ([
+        [right.x, right.y, right.z, 0.0],          // col 0 (right)
+        [up.x, up.y, up.z, 0.0],                   // col 1 (up)
+        [-forward.x, -forward.y, -forward.z, 0.0], // col 2 (-forward)
+        [tx, ty, tz, 1.0],                         // col 3
     ])
-    .into();
-
-    let rotation: Matrix4 = ([
-        [right.x, up.x, -forward.x, 0.0],
-        [right.y, up.y, -forward.y, 0.0],
-        [right.z, up.z, -forward.z, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ])
-    .into();
-
-    rotation * translation
-}
-
-pub fn look_at_with_roll(center: Vector3, eye: Vector3, up_prev: Vector3) -> (Matrix4, Vector3) {
-    let forward = (center - eye).normalize();
-
-    // Project the previous up vector onto the plane perpendicular to `forward`.
-    // This preserves roll around the forward axis while keeping the camera centered.
-    let dot_prev = forward.dot(up_prev);
-    let mut up_projected = Vector3::new(
-        up_prev.x - forward.x * dot_prev,
-        up_prev.y - forward.y * dot_prev,
-        up_prev.z - forward.z * dot_prev,
-    );
-
-    // If the projected up collapses (near singularity), pick a fallback reference axis and
-    // project that instead. This avoids sudden flips while still keeping continuity.
-    if up_projected.magnitude() < 1e-5 {
-        let fallback = if forward.dot(WORLD_UP).abs() < 0.9 {
-            WORLD_UP
-        } else if forward.dot(WORLD_RIGHT).abs() < 0.9 {
-            WORLD_RIGHT
-        } else {
-            Vector3::new(0.0, 0.0, 1.0)
-        };
-
-        let dot_fallback = forward.dot(fallback);
-        up_projected = Vector3::new(
-            fallback.x - forward.x * dot_fallback,
-            fallback.y - forward.y * dot_fallback,
-            fallback.z - forward.z * dot_fallback,
-        );
-    }
-
-    let up = up_projected.normalize();
-    let right = forward.cross_product(up).normalize();
-    let up = right.cross_product(forward).normalize();
-
-    let translation: Matrix4 = ([
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [-eye.x, -eye.y, -eye.z, 1.0],
-    ])
-    .into();
-
-    let rotation: Matrix4 = ([
-        [right.x, up.x, -forward.x, 0.0],
-        [right.y, up.y, -forward.y, 0.0],
-        [right.z, up.z, -forward.z, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ])
-    .into();
-
-    (rotation * translation, up)
+    .into()
 }
 
 pub fn perspective(horizontal_fov: f32, aspect_ratio: f32, near: f32, far: f32) -> Matrix4 {
-    let focal_length = 1.0 / (horizontal_fov.to_radians() / 2.0).tan() * aspect_ratio;
+    let fovx = horizontal_fov.to_radians();
+    let fx = 1.0 / (fovx * 0.5).tan();
+    // If `aspect_ratio = width / height` (typical), then using horizontal FOV implies:
+    // tan(fovx/2) = aspect * tan(fovy/2)  =>  fy = aspect * fx
+    let fy = fx * aspect_ratio;
 
+    // Right-handed, ZO depth ([0, 1]) projection (Vulkan/D3D style).
     let mut output = Matrix4::new();
-
-    output[[0, 0]] = focal_length / aspect_ratio;
-    output[[1, 1]] = -focal_length;
-    output[[2, 2]] = near / (near - far);
+    output[[0, 0]] = fx;
+    output[[1, 1]] = -fy;
+    output[[2, 2]] = far / (near - far);
     output[[2, 3]] = -1.0;
-    output[[3, 2]] = (near * far) / (far - near);
+    output[[3, 2]] = (near * far) / (near - far);
 
     output
 }
