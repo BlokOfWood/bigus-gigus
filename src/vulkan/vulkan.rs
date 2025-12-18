@@ -16,13 +16,18 @@ use ash::{
     },
     Entry, Instance,
 };
-use winit::{event_loop::ActiveEventLoop, raw_window_handle::HasDisplayHandle, window::Window};
+use winit::{
+    event::{ElementState, KeyEvent}, event_loop::ActiveEventLoop, keyboard::Key,
+    raw_window_handle::HasDisplayHandle, window::Window,
+};
+
+use crate::math::vector::Vector3;
 
 use crate::vulkan::{
-    buffers::{INDICES, VERTICES, Vertex},
+    buffers::Vertex,
     command_pool::create_render_pass,
     device_and_queues::QueueFamilyIndices,
-    image::{create_texture_image, create_texture_image_view, create_texture_sampler},
+    model::import_model,
     pipeline::{create_descriptor_set_layout, create_graphics_pipeline},
     window::{create_surface, enumerate_required_extensions},
 };
@@ -72,10 +77,18 @@ pub struct VulkanRenderer {
 
     pub(super) start_time: Instant,
     pub(super) command_buffers: Vec<CommandBuffer>,
+
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+
+    pub camera_up: Vector3,
 }
 
 impl VulkanRenderer {
     pub fn new(window: Arc<Window>, event_loop: &ActiveEventLoop) -> Self {
+        let (vertex_array, indices) = import_model("assets/models/viking_room.obj");
+
         let entry = Entry::linked();
 
         let api_version = match unsafe { entry.try_enumerate_instance_version() } {
@@ -190,16 +203,18 @@ impl VulkanRenderer {
             image_extent,
         );
 
-        let image = create_texture_image(&bigus_device, &command_pool);
+        let image =
+            bigus_device.create_texture_image("assets/textures/viking_room.png", &command_pool);
 
-        let image_view = create_texture_image_view(&bigus_device, image);
+        let image_view = bigus_device.create_texture_image_view(image);
 
-        let image_sampler = create_texture_sampler(&bigus_device);
+        let image_sampler = bigus_device.create_texture_sampler();
 
         let (vertex_buffer, _vertex_buffer_memory) =
-            bigus_device.create_vertex_buffer(&command_pool);
+            bigus_device.create_vertex_buffer(&vertex_array, &command_pool);
 
-        let (index_buffer, _index_buffer_memory) = bigus_device.create_index_buffer(&command_pool);
+        let (index_buffer, _index_buffer_memory) =
+            bigus_device.create_index_buffer(&indices, &command_pool);
 
         let (uniform_buffers, _uniform_buffer_memories, uniform_buffers_mapped) =
             bigus_device.create_uniform_buffers();
@@ -231,8 +246,8 @@ impl VulkanRenderer {
             descriptor_sets,
             render_pass,
             swapchain,
-            vertices: VERTICES.to_vec(),
-            indices: INDICES.to_vec(),
+            vertices: vertex_array,
+            indices: indices,
             vertex_buffer,
             index_buffer,
             depth_image,
@@ -249,6 +264,10 @@ impl VulkanRenderer {
             uniform_buffers_mapped,
             start_time: Instant::now(),
             command_buffers,
+            x: 0.0,
+            y: 2.3,
+            z: -2.0,
+            camera_up: Vector3::new(0.0, 1.0, 0.0),
         }
     }
 
@@ -351,14 +370,45 @@ impl VulkanRenderer {
                 &[],
             );
 
-            self.device
-                .dev
-                .cmd_draw_indexed(*command_buffer, INDICES.len() as u32, 1, 0, 0, 0);
+            self.device.dev.cmd_draw_indexed(
+                *command_buffer,
+                self.indices.len() as u32,
+                1,
+                0,
+                0,
+                0,
+            );
 
             self.device.dev.cmd_end_render_pass(*command_buffer);
 
             self.device.dev.end_command_buffer(*command_buffer).unwrap();
         };
+    }
+
+    pub fn process_key_event(&mut self, event: KeyEvent) {
+        if event.state == ElementState::Released {
+            return;
+        }
+
+        let key = match event.logical_key {
+            Key::Character(key) => key,
+            _ => return,
+        };
+
+        match key.as_str() {
+            "w" => self.y += 0.1,
+            "s" => self.y -= 0.1,
+            "a" => self.x -= 0.1,
+            "d" => self.x += 0.1,
+            "q" => self.z -= 0.1,
+            "e" => self.z += 0.1,
+            _ => return,
+        }
+
+        println!(
+            "Position - x: {}, y: {}, z: {}",
+            self.x, self.y, self.z
+        );
     }
 
     pub fn draw_frame(&mut self) {

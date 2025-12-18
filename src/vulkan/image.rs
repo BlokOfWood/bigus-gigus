@@ -12,164 +12,162 @@ use ash::vk::{
 
 use super::device_and_queues::BigusDevice;
 
-pub fn create_texture_image(device: &BigusDevice, command_pool: &CommandPool) -> Image {
-    let open_image = image::open("assets/textures/statue.jpg").unwrap();
+impl BigusDevice {
+    pub fn create_texture_image(&self, image_path: &str, command_pool: &CommandPool) -> Image {
+        let open_image = image::open(image_path).unwrap();
 
-    let image_extent = [open_image.width(), open_image.height()];
+        let image_extent = [open_image.width(), open_image.height()];
 
-    let image_data = open_image.to_rgba8();
+        let image_data = open_image.to_rgba8();
 
-    let (staging_buffer, staging_buffer_memory) = device.create_buffer(
-        image_data.len() as u64,
-        BufferUsageFlags::TRANSFER_SRC,
-        MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
-    );
+        let (staging_buffer, staging_buffer_memory) = self.create_buffer(
+            image_data.len() as u64,
+            BufferUsageFlags::TRANSFER_SRC,
+            MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
+        );
 
-    unsafe {
-        let data = device
-            .dev
-            .map_memory(
-                staging_buffer_memory,
-                0,
-                image_data.len() as u64,
-                MemoryMapFlags::empty(),
-            )
-            .unwrap();
-        data.copy_from(image_data.as_ptr() as *mut c_void, image_data.len());
-
-        device.dev.unmap_memory(staging_buffer_memory);
-    };
-
-    drop(open_image);
-
-    let (texture_image, _texture_image_memory) = device.create_image(
-        image_extent,
-        Format::R8G8B8A8_SRGB,
-        ImageTiling::OPTIMAL,
-        ImageUsageFlags::TRANSFER_DST | ImageUsageFlags::SAMPLED,
-        MemoryPropertyFlags::DEVICE_LOCAL,
-    );
-
-    transition_image_layout(
-        device,
-        command_pool,
-        ImageLayout::UNDEFINED,
-        ImageLayout::TRANSFER_DST_OPTIMAL,
-        texture_image,
-    );
-
-    device.copy_buffer_to_image(
-        staging_buffer,
-        texture_image,
-        command_pool,
-        image_extent[0],
-        image_extent[1],
-    );
-
-    transition_image_layout(
-        device,
-        command_pool,
-        ImageLayout::TRANSFER_DST_OPTIMAL,
-        ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        texture_image,
-    );
-
-    unsafe {
-        device.dev.destroy_buffer(staging_buffer, None);
-        device.dev.free_memory(staging_buffer_memory, None);
-    };
-
-    texture_image
-}
-
-fn transition_image_layout(
-    device: &BigusDevice,
-    command_pool: &CommandPool,
-    old_layout: ImageLayout,
-    new_layout: ImageLayout,
-    image: Image,
-) {
-    let command_buffer = device.begin_single_time_commands(command_pool);
-
-    let barrier = ImageMemoryBarrier {
-        old_layout,
-        new_layout,
-        src_queue_family_index: QUEUE_FAMILY_IGNORED,
-        dst_queue_family_index: QUEUE_FAMILY_IGNORED,
-        image,
-        subresource_range: ImageSubresourceRange {
-            aspect_mask: ImageAspectFlags::COLOR,
-            base_mip_level: 0,
-            level_count: 1,
-            base_array_layer: 0,
-            layer_count: 1,
-        },
-        ..Default::default()
-    };
-
-    if old_layout == ImageLayout::UNDEFINED && new_layout == ImageLayout::TRANSFER_DST_OPTIMAL {
         unsafe {
-            device.dev.cmd_pipeline_barrier(
-                command_buffer,
-                PipelineStageFlags::TOP_OF_PIPE,
-                PipelineStageFlags::TRANSFER,
-                DependencyFlags::empty(),
-                &[],
-                &[],
-                &[barrier
-                    .src_access_mask(AccessFlags::empty())
-                    .dst_access_mask(AccessFlags::TRANSFER_WRITE)],
-            )
+            let data = self
+                .dev
+                .map_memory(
+                    staging_buffer_memory,
+                    0,
+                    image_data.len() as u64,
+                    MemoryMapFlags::empty(),
+                )
+                .unwrap();
+            data.copy_from(image_data.as_ptr() as *mut c_void, image_data.len());
+
+            self.dev.unmap_memory(staging_buffer_memory);
         };
-    } else {
+
+        drop(open_image);
+
+        let (texture_image, _texture_image_memory) = self.create_image(
+            image_extent,
+            Format::R8G8B8A8_SRGB,
+            ImageTiling::OPTIMAL,
+            ImageUsageFlags::TRANSFER_DST | ImageUsageFlags::SAMPLED,
+            MemoryPropertyFlags::DEVICE_LOCAL,
+        );
+
+        self.transition_image_layout(
+            command_pool,
+            ImageLayout::UNDEFINED,
+            ImageLayout::TRANSFER_DST_OPTIMAL,
+            texture_image,
+        );
+
+        self.copy_buffer_to_image(
+            staging_buffer,
+            texture_image,
+            command_pool,
+            image_extent[0],
+            image_extent[1],
+        );
+
+        self.transition_image_layout(
+            command_pool,
+            ImageLayout::TRANSFER_DST_OPTIMAL,
+            ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            texture_image,
+        );
+
         unsafe {
-            device.dev.cmd_pipeline_barrier(
-                command_buffer,
-                PipelineStageFlags::TRANSFER,
-                PipelineStageFlags::FRAGMENT_SHADER,
-                DependencyFlags::empty(),
-                &[],
-                &[],
-                &[barrier
-                    .src_access_mask(AccessFlags::TRANSFER_WRITE)
-                    .dst_access_mask(AccessFlags::SHADER_READ)],
-            )
+            self.dev.destroy_buffer(staging_buffer, None);
+            self.dev.free_memory(staging_buffer_memory, None);
+        };
+
+        texture_image
+    }
+
+    fn transition_image_layout(
+        &self,
+        command_pool: &CommandPool,
+        old_layout: ImageLayout,
+        new_layout: ImageLayout,
+        image: Image,
+    ) {
+        let command_buffer = self.begin_single_time_commands(command_pool);
+
+        let barrier = ImageMemoryBarrier {
+            old_layout,
+            new_layout,
+            src_queue_family_index: QUEUE_FAMILY_IGNORED,
+            dst_queue_family_index: QUEUE_FAMILY_IGNORED,
+            image,
+            subresource_range: ImageSubresourceRange {
+                aspect_mask: ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 1,
+            },
+            ..Default::default()
+        };
+
+        if old_layout == ImageLayout::UNDEFINED && new_layout == ImageLayout::TRANSFER_DST_OPTIMAL {
+            unsafe {
+                self.dev.cmd_pipeline_barrier(
+                    command_buffer,
+                    PipelineStageFlags::TOP_OF_PIPE,
+                    PipelineStageFlags::TRANSFER,
+                    DependencyFlags::empty(),
+                    &[],
+                    &[],
+                    &[barrier
+                        .src_access_mask(AccessFlags::empty())
+                        .dst_access_mask(AccessFlags::TRANSFER_WRITE)],
+                )
+            };
+        } else {
+            unsafe {
+                self.dev.cmd_pipeline_barrier(
+                    command_buffer,
+                    PipelineStageFlags::TRANSFER,
+                    PipelineStageFlags::FRAGMENT_SHADER,
+                    DependencyFlags::empty(),
+                    &[],
+                    &[],
+                    &[barrier
+                        .src_access_mask(AccessFlags::TRANSFER_WRITE)
+                        .dst_access_mask(AccessFlags::SHADER_READ)],
+                )
+            }
+        }
+
+        self.end_single_time_commands(command_pool, command_buffer);
+    }
+
+    pub fn create_texture_image_view(&self, image: Image) -> ImageView {
+        self.create_image_view(image, Format::R8G8B8A8_SRGB, ImageAspectFlags::COLOR)
+    }
+
+    pub fn create_texture_sampler(&self) -> Sampler {
+        unsafe {
+            self.dev
+                .create_sampler(
+                    &SamplerCreateInfo {
+                        mag_filter: Filter::LINEAR,
+                        min_filter: Filter::LINEAR,
+                        address_mode_u: SamplerAddressMode::REPEAT,
+                        address_mode_v: SamplerAddressMode::REPEAT,
+                        address_mode_w: SamplerAddressMode::REPEAT,
+                        anisotropy_enable: TRUE,
+                        max_anisotropy: self.phys_dev_capabilities.limits.max_sampler_anisotropy,
+                        border_color: BorderColor::INT_OPAQUE_BLACK,
+                        unnormalized_coordinates: FALSE,
+                        compare_enable: FALSE,
+                        compare_op: CompareOp::ALWAYS,
+                        mipmap_mode: SamplerMipmapMode::LINEAR,
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .unwrap()
         }
     }
 
-    device.end_single_time_commands(command_pool, command_buffer);
-}
-pub fn create_texture_image_view(device: &BigusDevice, image: Image) -> ImageView {
-    device.create_image_view(image, Format::R8G8B8A8_SRGB, ImageAspectFlags::COLOR)
-}
-
-pub fn create_texture_sampler(device: &BigusDevice) -> Sampler {
-    unsafe {
-        device
-            .dev
-            .create_sampler(
-                &SamplerCreateInfo {
-                    mag_filter: Filter::LINEAR,
-                    min_filter: Filter::LINEAR,
-                    address_mode_u: SamplerAddressMode::REPEAT,
-                    address_mode_v: SamplerAddressMode::REPEAT,
-                    address_mode_w: SamplerAddressMode::REPEAT,
-                    anisotropy_enable: TRUE,
-                    max_anisotropy: device.phys_dev_capabilities.limits.max_sampler_anisotropy,
-                    border_color: BorderColor::INT_OPAQUE_BLACK,
-                    unnormalized_coordinates: FALSE,
-                    compare_enable: FALSE,
-                    compare_op: CompareOp::ALWAYS,
-                    mipmap_mode: SamplerMipmapMode::LINEAR,
-                    ..Default::default()
-                },
-                None,
-            )
-            .unwrap()
-    }
-}
-
-impl BigusDevice {
     pub fn create_image(
         &self,
         extent: [u32; 2],

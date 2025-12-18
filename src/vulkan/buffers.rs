@@ -7,7 +7,7 @@ use ash::vk::{
 
 use crate::{
     math::{
-        graphics_ops::{look_at, perspective},
+        graphics_ops::{look_at_with_roll, perspective},
         quaternion::Quaternion,
         vector::{Vector3, VECTOR3_ZERO},
     },
@@ -23,12 +23,12 @@ use std::{mem::offset_of, os::raw::c_void};
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Vertex {
-    pos: [f32; 3],
-    color: [f32; 3],
-    tex_coord: [f32; 2],
+    pub pos: [f32; 3],
+    pub color: [f32; 3],
+    pub tex_coord: [f32; 2],
 }
 
-pub const VERTICES: [Vertex; 8] = [
+/*pub const VERTICES: [Vertex; 8] = [
     Vertex {
         pos: [-0.5, -0.5, 0.0],
         color: [1.0, 0.0, 0.0],
@@ -71,7 +71,7 @@ pub const VERTICES: [Vertex; 8] = [
     },
 ];
 
-pub const INDICES: [u32; 12] = [0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4];
+pub const INDICES: [u32; 12] = [0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4];*/
 
 pub struct VertexBuffer;
 
@@ -251,9 +251,10 @@ impl BigusDevice {
 
     pub(crate) fn create_vertex_buffer(
         &self,
+        vertex_array: &[Vertex], 
         command_pool: &CommandPool,
     ) -> (Buffer, DeviceMemory) {
-        let buffer_size = (size_of::<Vertex>() * VERTICES.len()) as u64;
+        let buffer_size = (size_of::<Vertex>() * vertex_array.len()) as u64;
 
         let (staging_buffer, staging_buffer_memory) = self.create_buffer(
             buffer_size,
@@ -261,7 +262,7 @@ impl BigusDevice {
             MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
         );
 
-        self.copy_into_buffer(staging_buffer_memory, &VERTICES);
+        self.copy_into_buffer(staging_buffer_memory, &vertex_array);
 
         let (vertex_buffer, vertex_buffer_memory) = self.create_buffer(
             buffer_size,
@@ -279,8 +280,8 @@ impl BigusDevice {
         (vertex_buffer, vertex_buffer_memory)
     }
 
-    pub(crate) fn create_index_buffer(&self, command_pool: &CommandPool) -> (Buffer, DeviceMemory) {
-        let buffer_size = (size_of::<u32>() * INDICES.len()) as u64;
+    pub(crate) fn create_index_buffer(&self, index_array: &[u32], command_pool: &CommandPool) -> (Buffer, DeviceMemory) {
+        let buffer_size = (size_of::<u32>() * index_array.len()) as u64;
 
         let (staging_buffer, staging_buffer_memory) = self.create_buffer(
             buffer_size,
@@ -288,7 +289,7 @@ impl BigusDevice {
             MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
         );
 
-        self.copy_into_buffer(staging_buffer_memory, &INDICES);
+        self.copy_into_buffer(staging_buffer_memory, index_array);
 
         let (index_buffer, index_buffer_memory) = self.create_buffer(
             buffer_size,
@@ -346,15 +347,17 @@ impl BigusDevice {
 
 impl VulkanRenderer {
     pub(super) fn update_uniform_buffer(&mut self, current_frame: usize, aspect_ratio: f32) {
-        let elapsed_time = self.start_time.elapsed();
+        let (view, up_new) = look_at_with_roll(
+            VECTOR3_ZERO,
+            Vector3::new(self.x, self.y, self.z),
+            self.camera_up,
+        );
+        self.camera_up = up_new;
 
         let uniform_buffer_new_contents = UniformBufferObject {
-            model: Quaternion::new(Vector3::new(0.0, 0.0, 1.0), 3.14/*elapsed_time.as_secs_f32()*/)
+            model: Quaternion::new(Vector3::new(0.0 , 1.0, 0.0), 0.0/*elapsed_time.as_secs_f32()*/)
                 .into_rotation_matrix(),
-            view: look_at(
-                VECTOR3_ZERO,
-                Vector3::new(0.0, elapsed_time.as_secs_f32().sin() * 3.0, 2.0),
-            ),
+            view,
             proj: perspective(60.0, aspect_ratio, 0.1, 100.0),
         };
 

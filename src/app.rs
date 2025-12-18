@@ -56,7 +56,7 @@ impl ApplicationHandler for App {
                 DEFAULT_WINDOW_WIDTH,
                 DEFAULT_WINDOW_HEIGHT,
             ));
-
+            
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
         self.window = Some(window.clone());
 
@@ -78,7 +78,13 @@ impl ApplicationHandler for App {
                     vk_renderer.draw_frame();
                 };
                 self.window.as_ref().unwrap().request_redraw();
-            }
+            },
+            WindowEvent::KeyboardInput { event, .. } => {
+                if let Some(vk_renderer) = &mut self.vk_renderer {
+                    vk_renderer.process_key_event(event);
+                    vk_renderer.draw_frame();
+                };
+            }, 
             WindowEvent::Resized(new_size) => {
                 if new_size.width == 0 || new_size.height == 0 {
                     return;

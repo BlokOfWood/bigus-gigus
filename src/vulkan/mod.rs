@@ -8,3 +8,4 @@ pub mod pipeline;
 pub mod shader;
 pub mod buffers;
 pub mod ubo;
+pub mod model;
