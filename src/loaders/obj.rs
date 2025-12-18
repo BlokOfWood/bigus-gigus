@@ -4,6 +4,8 @@ use std::{
     vec::Vec,
 };
 
+use ahash::{HashMap, HashMapExt};
+
 use crate::vulkan::buffers::Vertex;
 
 pub struct Model {
@@ -53,20 +55,24 @@ impl Model {
             }
         }
 
+        let mut vertices = Vec::new();
         let mut indices = Vec::new();
 
-        let vertices = face_indices
-            .iter()
-            .map(|face_index| {
-                indices.push(indices.len() as u32);
+        let mut hash_map = HashMap::new();
 
-                Vertex {
-                    pos: positions[face_index[0]],
-                    tex_coord: tex_coords[face_index[1]],
-                    color: [0.0, 0.0, 0.0],
-                }
-            })
-            .collect();
+        for index in face_indices {
+            if let Some(new_index) = hash_map.get(&index) {
+                indices.push(*new_index as u32);
+            } else {
+                hash_map.insert(index, vertices.len());
+                indices.push(vertices.len() as u32);
+                vertices.push(Vertex {
+                    pos: positions[index[0]],
+                    color: [1.0, 1.0, 1.0],
+                    tex_coord: tex_coords[index[1]],
+                });
+            }
+        }
 
         Model { vertices, indices }
     }
