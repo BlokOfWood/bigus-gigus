@@ -17,11 +17,14 @@ use ash::{
     Entry, Instance,
 };
 use winit::{
-    event::{ElementState, KeyEvent}, event_loop::ActiveEventLoop, keyboard::Key,
-    raw_window_handle::HasDisplayHandle, window::Window,
+    event::{ElementState, KeyEvent},
+    event_loop::ActiveEventLoop,
+    keyboard::Key,
+    raw_window_handle::HasDisplayHandle,
+    window::Window,
 };
 
-use crate::{loaders::obj::Model, math::vector::Vector3};
+use crate::loaders::obj::Model;
 
 use crate::vulkan::{
     buffers::Vertex,
@@ -56,9 +59,17 @@ pub struct VulkanRenderer {
     pub(super) window: Arc<Window>,
     pub(super) surface_instance: SurfaceInstance,
     pub(super) surface: SurfaceKHR,
-    pub(super) depth_image_view: ImageView,
+
+    pub mip_levels: u32,
+
+    pub(super) color_image: Image,
+    pub(super) color_image_view: ImageView,
+    pub(super) color_image_memory: DeviceMemory,
+
     pub(super) depth_image: Image,
+    pub(super) depth_image_view: ImageView,
     pub(super) depth_image_memory: DeviceMemory,
+
     pub(super) framebuffers: Vec<Framebuffer>,
     pub(super) swapchain_image_views: Vec<ImageView>,
     pub(super) _uniform_buffers: Vec<Buffer>,
@@ -80,8 +91,6 @@ pub struct VulkanRenderer {
     pub x: f32,
     pub y: f32,
     pub z: f32,
-
-    pub camera_up: Vector3,
 }
 
 impl VulkanRenderer {
@@ -180,11 +189,20 @@ impl VulkanRenderer {
             &queue_family_indices,
         );
 
-        let image_views = bigus_device.create_image_views(images, image_format.format);
-
         let descriptor_set_layout = create_descriptor_set_layout(&bigus_device);
 
         let command_pool = bigus_device.create_command_pool(&queue_family_indices);
+
+        let (image, mip_levels) =
+            bigus_device.create_texture_image("assets/textures/viking_room.png", &command_pool);
+
+        let image_views = bigus_device.create_image_views(images, image_format.format, mip_levels);
+
+        let (color_image, color_image_view, color_image_memory) = bigus_device
+            .create_color_resources(
+                [image_extent.width, image_extent.height],
+                image_format.format,
+            );
 
         let (depth_image, depth_image_view, depth_image_memory, depth_image_format) =
             bigus_device.create_depth_resources([image_extent.width, image_extent.height]);
@@ -197,15 +215,13 @@ impl VulkanRenderer {
 
         let framebuffers = bigus_device.create_frame_buffers(
             render_pass.clone(),
+            color_image_view,
             &image_views,
             depth_image_view.clone(),
             image_extent,
         );
 
-        let image =
-            bigus_device.create_texture_image("assets/textures/viking_room.png", &command_pool);
-
-        let image_view = bigus_device.create_texture_image_view(image);
+        let image_view = bigus_device.create_texture_image_view(image, mip_levels);
 
         let image_sampler = bigus_device.create_texture_sampler();
 
@@ -249,9 +265,16 @@ impl VulkanRenderer {
             indices: model.indices,
             vertex_buffer,
             index_buffer,
+            mip_levels,
+
+            color_image,
+            color_image_memory,
+            color_image_view,
+
             depth_image,
             depth_image_memory,
             depth_image_view,
+
             framebuffers,
             swapchain_image_views: image_views,
             swapchain_extent: image_extent,
@@ -266,7 +289,6 @@ impl VulkanRenderer {
             x: -2.0,
             y: -2.0,
             z: 3.0,
-            camera_up: Vector3::new(0.0, 1.0, 0.0),
         }
     }
 
@@ -404,10 +426,7 @@ impl VulkanRenderer {
             _ => return,
         }
 
-        println!(
-            "Position - x: {}, y: {}, z: {}",
-            self.x, self.y, self.z
-        );
+        println!("Position - x: {}, y: {}, z: {}", self.x, self.y, self.z);
     }
 
     pub fn draw_frame(&mut self) {

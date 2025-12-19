@@ -204,8 +204,9 @@ pub(super) fn create_graphics_pipeline(
     };
 
     let multisampling = PipelineMultisampleStateCreateInfo {
-        sample_shading_enable: FALSE,
-        rasterization_samples: SampleCountFlags::TYPE_1,
+        sample_shading_enable: TRUE,
+        min_sample_shading: 0.2,
+        rasterization_samples: device.max_sample_count,
         ..Default::default()
     };
 

@@ -154,6 +154,7 @@ impl BigusDevice {
     pub(super) fn create_frame_buffers(
         &self,
         render_pass: RenderPass,
+        color_image_view: ImageView,
         swap_chain_image_views: &Vec<ImageView>,
         depth_image_view: ImageView,
         swap_chain_extent: Extent2D,
@@ -161,7 +162,7 @@ impl BigusDevice {
         let mut frame_buffers = Vec::new();
 
         for i in 0..swap_chain_image_views.len() {
-            let attachments = [swap_chain_image_views[i], depth_image_view];
+            let attachments = [color_image_view, depth_image_view, swap_chain_image_views[i]];
 
             let frame_buffer = unsafe {
                 self.dev.create_framebuffer(
@@ -186,17 +187,9 @@ impl BigusDevice {
 }
 
 impl VulkanRenderer {
-    pub fn recreate_swap_chain(
-        &mut self,
-    ) {
+    pub fn recreate_swap_chain(&mut self) {
         let surface = unsafe {
-            create_surface(
-                &self.entry,
-                &self.instance,
-                self.window.clone(),
-                None,
-            )
-            .unwrap()
+            create_surface(&self.entry, &self.instance, self.window.clone(), None).unwrap()
         };
         self.surface = surface;
 
@@ -207,12 +200,24 @@ impl VulkanRenderer {
         let (swapchain, images, image_format, image_extent) = self.device.create_swap_chain(
             &self.surface_instance,
             surface,
-            [self.window.inner_size().width, self.window.inner_size().height],
+            [
+                self.window.inner_size().width,
+                self.window.inner_size().height,
+            ],
             &self.device.queue_family_indices,
         );
         self.swapchain = swapchain;
 
-        let image_views = self.device.create_image_views(images, image_format.format);
+        let image_views =
+            self.device
+                .create_image_views(images, image_format.format, self.mip_levels);
+
+        let (color_image, color_image_view, color_image_memory) = self
+            .device
+            .create_color_resources([image_extent.width, image_extent.height], image_format.format);
+        self.color_image = color_image;
+        self.color_image_view = color_image_view;
+        self.color_image_memory = color_image_memory;
 
         let (depth_image, depth_image_view, depth_image_memory, _depth_image_format) = self
             .device
@@ -223,6 +228,7 @@ impl VulkanRenderer {
 
         let framebuffers = self.device.create_frame_buffers(
             self.render_pass.clone(),
+            color_image_view,
             &image_views,
             depth_image_view.clone(),
             image_extent,

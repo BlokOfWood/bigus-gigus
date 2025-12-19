@@ -2,21 +2,26 @@ use std::ffi::c_void;
 
 use ash::vk::{
     AccessFlags, BorderColor, BufferUsageFlags, CommandPool, CompareOp, DependencyFlags,
-    DeviceMemory, Extent3D, Filter, Format, FormatFeatureFlags, Image, ImageAspectFlags,
-    ImageCreateInfo, ImageLayout, ImageMemoryBarrier, ImageSubresourceRange, ImageTiling,
-    ImageType, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, MemoryAllocateInfo,
-    MemoryMapFlags, MemoryPropertyFlags, PipelineStageFlags, SampleCountFlags, Sampler,
-    SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, SharingMode, FALSE,
-    QUEUE_FAMILY_IGNORED, TRUE,
+    DeviceMemory, Extent3D, Filter, Format, FormatFeatureFlags, Image, ImageAspectFlags, ImageBlit,
+    ImageCreateInfo, ImageLayout, ImageMemoryBarrier, ImageSubresourceLayers,
+    ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageView, ImageViewCreateInfo,
+    ImageViewType, MemoryAllocateInfo, MemoryMapFlags, MemoryPropertyFlags, Offset3D,
+    PipelineStageFlags, SampleCountFlags, Sampler, SamplerAddressMode, SamplerCreateInfo,
+    SamplerMipmapMode, SharingMode, FALSE, LOD_CLAMP_NONE, QUEUE_FAMILY_IGNORED, TRUE,
 };
 
 use super::device_and_queues::BigusDevice;
 
 impl BigusDevice {
-    pub fn create_texture_image(&self, image_path: &str, command_pool: &CommandPool) -> Image {
+    pub fn create_texture_image(
+        &self,
+        image_path: &str,
+        command_pool: &CommandPool,
+    ) -> (Image, u32) {
         let open_image = image::open(image_path).unwrap();
 
         let image_extent = [open_image.width(), open_image.height()];
+        let mip_levels = image_extent[0].max(image_extent[1]).ilog2();
 
         let image_data = open_image.to_rgba8();
 
@@ -45,9 +50,13 @@ impl BigusDevice {
 
         let (texture_image, _texture_image_memory) = self.create_image(
             image_extent,
+            mip_levels,
+            SampleCountFlags::TYPE_1,
             Format::R8G8B8A8_SRGB,
             ImageTiling::OPTIMAL,
-            ImageUsageFlags::TRANSFER_DST | ImageUsageFlags::SAMPLED,
+            ImageUsageFlags::TRANSFER_SRC
+                | ImageUsageFlags::TRANSFER_DST
+                | ImageUsageFlags::SAMPLED,
             MemoryPropertyFlags::DEVICE_LOCAL,
         );
 
@@ -56,6 +65,7 @@ impl BigusDevice {
             ImageLayout::UNDEFINED,
             ImageLayout::TRANSFER_DST_OPTIMAL,
             texture_image,
+            mip_levels,
         );
 
         self.copy_buffer_to_image(
@@ -66,19 +76,174 @@ impl BigusDevice {
             image_extent[1],
         );
 
-        self.transition_image_layout(
+        self.generate_mipmaps(
+            command_pool,
+            texture_image,
+            Format::R8G8B8A8_SRGB,
+            image_extent,
+            mip_levels,
+        );
+
+        /*  self.transition_image_layout(
             command_pool,
             ImageLayout::TRANSFER_DST_OPTIMAL,
             ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             texture_image,
-        );
+            mip_levels,
+        ); */
 
         unsafe {
             self.dev.destroy_buffer(staging_buffer, None);
             self.dev.free_memory(staging_buffer_memory, None);
         };
 
-        texture_image
+        (texture_image, mip_levels)
+    }
+
+    fn generate_mipmaps(
+        &self,
+        command_pool: &CommandPool,
+        image: Image,
+        image_format: Format,
+        extent: [u32; 2],
+        mip_levels: u32,
+    ) {
+        let format_properties = unsafe {
+            self.instance
+                .get_physical_device_format_properties(self.phys_dev, image_format)
+        };
+
+        if !format_properties
+            .optimal_tiling_features
+            .contains(FormatFeatureFlags::SAMPLED_IMAGE_FILTER_LINEAR)
+        {
+            panic!("Texture image format does not support linear blitting!")
+        }
+
+        let command_buffer = self.begin_single_time_commands(command_pool);
+
+        let mut barrier = ImageMemoryBarrier {
+            image,
+            src_queue_family_index: QUEUE_FAMILY_IGNORED,
+            dst_queue_family_index: QUEUE_FAMILY_IGNORED,
+            subresource_range: ImageSubresourceRange {
+                aspect_mask: ImageAspectFlags::COLOR,
+                base_array_layer: 0,
+                level_count: 1,
+                layer_count: 1,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let mut mip_width = extent[0];
+        let mut mip_height = extent[1];
+
+        for i in 1..mip_levels {
+            barrier.subresource_range.base_mip_level = i - 1;
+            barrier.old_layout = ImageLayout::TRANSFER_DST_OPTIMAL;
+            barrier.new_layout = ImageLayout::TRANSFER_SRC_OPTIMAL;
+            barrier.src_access_mask = AccessFlags::TRANSFER_WRITE;
+            barrier.dst_access_mask = AccessFlags::TRANSFER_READ;
+
+            unsafe {
+                self.dev.cmd_pipeline_barrier(
+                    command_buffer,
+                    PipelineStageFlags::TRANSFER,
+                    PipelineStageFlags::TRANSFER,
+                    DependencyFlags::empty(),
+                    &[],
+                    &[],
+                    &[barrier],
+                );
+
+                let new_mip_width: i32 = if mip_width > 1 {
+                    mip_width as i32 / 2
+                } else {
+                    1
+                };
+                let new_mip_height: i32 = if mip_height > 1 {
+                    mip_height as i32 / 2
+                } else {
+                    1
+                };
+
+                self.dev.cmd_blit_image(
+                    command_buffer,
+                    image,
+                    ImageLayout::TRANSFER_SRC_OPTIMAL,
+                    image,
+                    ImageLayout::TRANSFER_DST_OPTIMAL,
+                    &[ImageBlit {
+                        src_offsets: [
+                            Offset3D { x: 0, y: 0, z: 0 },
+                            Offset3D {
+                                x: mip_width as i32,
+                                y: mip_height as i32,
+                                z: 1,
+                            },
+                        ],
+                        src_subresource: ImageSubresourceLayers {
+                            aspect_mask: ImageAspectFlags::COLOR,
+                            mip_level: i - 1,
+                            base_array_layer: 0,
+                            layer_count: 1,
+                        },
+                        dst_offsets: [
+                            Offset3D { x: 0, y: 0, z: 0 },
+                            Offset3D {
+                                x: new_mip_width,
+                                y: new_mip_height,
+                                z: 1,
+                            },
+                        ],
+                        dst_subresource: ImageSubresourceLayers {
+                            aspect_mask: ImageAspectFlags::COLOR,
+                            mip_level: i,
+                            base_array_layer: 0,
+                            layer_count: 1,
+                        },
+                    }],
+                    Filter::LINEAR,
+                );
+
+                barrier.old_layout = ImageLayout::TRANSFER_SRC_OPTIMAL;
+                barrier.new_layout = ImageLayout::SHADER_READ_ONLY_OPTIMAL;
+                barrier.src_access_mask = AccessFlags::TRANSFER_READ;
+                barrier.dst_access_mask = AccessFlags::SHADER_READ;
+
+                self.dev.cmd_pipeline_barrier(
+                    command_buffer,
+                    PipelineStageFlags::TRANSFER,
+                    PipelineStageFlags::FRAGMENT_SHADER,
+                    DependencyFlags::empty(),
+                    &[],
+                    &[],
+                    &[barrier],
+                );
+
+                mip_width = new_mip_width as u32;
+                mip_height = new_mip_height as u32;
+
+                barrier.subresource_range.base_mip_level = mip_levels - 1;
+                barrier.old_layout = ImageLayout::TRANSFER_DST_OPTIMAL;
+                barrier.new_layout = ImageLayout::SHADER_READ_ONLY_OPTIMAL;
+                barrier.src_access_mask = AccessFlags::TRANSFER_WRITE;
+                barrier.dst_access_mask = AccessFlags::SHADER_READ;
+
+                self.dev.cmd_pipeline_barrier(
+                    command_buffer,
+                    PipelineStageFlags::TRANSFER,
+                    PipelineStageFlags::FRAGMENT_SHADER,
+                    DependencyFlags::empty(),
+                    &[],
+                    &[],
+                    &[barrier],
+                );
+            };
+        }
+
+        self.end_single_time_commands(command_pool, command_buffer);
     }
 
     fn transition_image_layout(
@@ -87,6 +252,7 @@ impl BigusDevice {
         old_layout: ImageLayout,
         new_layout: ImageLayout,
         image: Image,
+        mip_levels: u32,
     ) {
         let command_buffer = self.begin_single_time_commands(command_pool);
 
@@ -99,7 +265,7 @@ impl BigusDevice {
             subresource_range: ImageSubresourceRange {
                 aspect_mask: ImageAspectFlags::COLOR,
                 base_mip_level: 0,
-                level_count: 1,
+                level_count: mip_levels,
                 base_array_layer: 0,
                 layer_count: 1,
             },
@@ -139,8 +305,13 @@ impl BigusDevice {
         self.end_single_time_commands(command_pool, command_buffer);
     }
 
-    pub fn create_texture_image_view(&self, image: Image) -> ImageView {
-        self.create_image_view(image, Format::R8G8B8A8_SRGB, ImageAspectFlags::COLOR)
+    pub fn create_texture_image_view(&self, image: Image, mip_levels: u32) -> ImageView {
+        self.create_image_view(
+            image,
+            Format::R8G8B8A8_SRGB,
+            ImageAspectFlags::COLOR,
+            mip_levels,
+        )
     }
 
     pub fn create_texture_sampler(&self) -> Sampler {
@@ -160,6 +331,7 @@ impl BigusDevice {
                         compare_enable: FALSE,
                         compare_op: CompareOp::ALWAYS,
                         mipmap_mode: SamplerMipmapMode::LINEAR,
+                        max_lod: LOD_CLAMP_NONE,
                         ..Default::default()
                     },
                     None,
@@ -171,6 +343,8 @@ impl BigusDevice {
     pub fn create_image(
         &self,
         extent: [u32; 2],
+        mip_levels: u32,
+        samples: SampleCountFlags,
         format: Format,
         tiling: ImageTiling,
         usage: ImageUsageFlags,
@@ -183,13 +357,13 @@ impl BigusDevice {
                 height: extent[1],
                 depth: 1,
             },
-            mip_levels: 1,
+            mip_levels,
             array_layers: 1,
             format,
             tiling,
             initial_layout: ImageLayout::UNDEFINED,
             usage,
-            samples: SampleCountFlags::TYPE_1,
+            samples,
             sharing_mode: SharingMode::EXCLUSIVE,
             ..Default::default()
         };
@@ -220,6 +394,7 @@ impl BigusDevice {
         image: Image,
         format: Format,
         aspect_flags: ImageAspectFlags,
+        mip_levels: u32,
     ) -> ImageView {
         let view_info = ImageViewCreateInfo {
             image,
@@ -228,7 +403,7 @@ impl BigusDevice {
             subresource_range: ImageSubresourceRange {
                 aspect_mask: aspect_flags,
                 base_mip_level: 0,
-                level_count: 1,
+                level_count: mip_levels,
                 base_array_layer: 0,
                 layer_count: 1,
             },
@@ -242,6 +417,7 @@ impl BigusDevice {
         &self,
         swap_chain_images: Vec<Image>,
         swap_chain_image_format: Format,
+        mip_levels: u32,
     ) -> Vec<ImageView> {
         let mut image_views: Vec<ImageView> = Vec::with_capacity(swap_chain_images.len());
 
@@ -250,10 +426,33 @@ impl BigusDevice {
                 image,
                 swap_chain_image_format,
                 ImageAspectFlags::COLOR,
+                mip_levels,
             ));
         }
 
         image_views
+    }
+
+    pub fn create_color_resources(
+        &self,
+        swap_chain_extent: [u32; 2],
+        swap_chain_image_format: Format,
+    ) -> (Image, ImageView, DeviceMemory) {
+        let color_format = swap_chain_image_format;
+
+        let (color_image, color_image_memory) = self.create_image(
+            swap_chain_extent,
+            1,
+            self.max_sample_count,
+            color_format,
+            ImageTiling::OPTIMAL,
+            ImageUsageFlags::TRANSIENT_ATTACHMENT | ImageUsageFlags::COLOR_ATTACHMENT,
+            MemoryPropertyFlags::DEVICE_LOCAL,
+        );
+
+        let color_image_view = self.create_image_view(color_image, color_format, ImageAspectFlags::COLOR, 1);
+
+        return (color_image, color_image_view, color_image_memory);
     }
 
     pub fn create_depth_resources(
@@ -264,13 +463,15 @@ impl BigusDevice {
 
         let (depth_image, depth_image_memory) = self.create_image(
             swap_chain_extent,
+            1,
+            self.max_sample_count,
             image_format,
             ImageTiling::OPTIMAL,
             ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
             MemoryPropertyFlags::DEVICE_LOCAL,
         );
         let depth_image_view =
-            self.create_image_view(depth_image, image_format, ImageAspectFlags::DEPTH);
+            self.create_image_view(depth_image, image_format, ImageAspectFlags::DEPTH, 1);
 
         (
             depth_image,

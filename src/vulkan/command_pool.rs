@@ -1,9 +1,9 @@
 use ash::vk::{
     AccessFlags, AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp,
-    CommandBuffer, CommandBufferAllocateInfo,
-    CommandBufferBeginInfo, CommandBufferLevel, CommandBufferUsageFlags, CommandPool,
-    CommandPoolCreateFlags, CommandPoolCreateInfo, Fence, Format, ImageLayout, PipelineBindPoint, PipelineStageFlags, RenderPass,
-    RenderPassCreateInfo, SampleCountFlags, SubmitInfo, SubpassDependency, SubpassDescription, SUBPASS_EXTERNAL,
+    CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel,
+    CommandBufferUsageFlags, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, Fence,
+    Format, ImageLayout, PipelineBindPoint, PipelineStageFlags, RenderPass, RenderPassCreateInfo,
+    SampleCountFlags, SubmitInfo, SubpassDependency, SubpassDescription, SUBPASS_EXTERNAL,
 };
 
 use crate::vulkan::vulkan::MAX_FRAMES_IN_FLIGHT;
@@ -92,7 +92,6 @@ impl BigusDevice {
                 .unwrap()
         }
     }
-
 }
 
 pub(super) fn create_render_pass(
@@ -102,25 +101,37 @@ pub(super) fn create_render_pass(
 ) -> RenderPass {
     let color_attachment = AttachmentDescription {
         format: image_format,
-        samples: SampleCountFlags::TYPE_1,
+        samples: device.max_sample_count,
         load_op: AttachmentLoadOp::CLEAR,
         store_op: AttachmentStoreOp::STORE,
         stencil_load_op: AttachmentLoadOp::DONT_CARE,
         stencil_store_op: AttachmentStoreOp::DONT_CARE,
         initial_layout: ImageLayout::UNDEFINED,
-        final_layout: ImageLayout::PRESENT_SRC_KHR,
+        final_layout: ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
         ..Default::default()
     };
 
     let depth_attchment = AttachmentDescription {
         format: depth_format,
-        samples: SampleCountFlags::TYPE_1,
+        samples: device.max_sample_count,
         load_op: AttachmentLoadOp::CLEAR,
         store_op: AttachmentStoreOp::DONT_CARE,
         stencil_load_op: AttachmentLoadOp::DONT_CARE,
         stencil_store_op: AttachmentStoreOp::DONT_CARE,
         initial_layout: ImageLayout::UNDEFINED,
         final_layout: ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        ..Default::default()
+    };
+
+    let color_attachment_resolve = AttachmentDescription {
+        format: image_format,
+        samples: SampleCountFlags::TYPE_1,
+        load_op: AttachmentLoadOp::DONT_CARE,
+        store_op: AttachmentStoreOp::STORE,
+        stencil_load_op: AttachmentLoadOp::DONT_CARE,
+        stencil_store_op: AttachmentStoreOp::DONT_CARE,
+        initial_layout: ImageLayout::UNDEFINED,
+        final_layout: ImageLayout::PRESENT_SRC_KHR,
         ..Default::default()
     };
 
@@ -136,11 +147,17 @@ pub(super) fn create_render_pass(
         ..Default::default()
     };
 
+    let color_attachment_resolve_ref = AttachmentReference {
+        attachment: 2,
+        layout: ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+    };
+
     let subpass = SubpassDescription {
         pipeline_bind_point: PipelineBindPoint::GRAPHICS,
         color_attachment_count: 1,
         p_color_attachments: &color_attachment_ref,
         p_depth_stencil_attachment: &depth_attachment_ref,
+        p_resolve_attachments: &color_attachment_resolve_ref,
         ..Default::default()
     };
 
@@ -149,7 +166,8 @@ pub(super) fn create_render_pass(
         dst_subpass: 0,
         src_stage_mask: PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
             | PipelineStageFlags::LATE_FRAGMENT_TESTS,
-        src_access_mask: AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+        src_access_mask: AccessFlags::COLOR_ATTACHMENT_WRITE
+            | AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
         dst_stage_mask: PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
             | PipelineStageFlags::EARLY_FRAGMENT_TESTS,
         dst_access_mask: AccessFlags::COLOR_ATTACHMENT_WRITE
@@ -157,7 +175,7 @@ pub(super) fn create_render_pass(
         ..Default::default()
     };
 
-    let attachments = vec![color_attachment, depth_attchment];
+    let attachments = vec![color_attachment, depth_attchment, color_attachment_resolve];
 
     let render_pass_create_info = RenderPassCreateInfo {
         attachment_count: attachments.len() as u32,

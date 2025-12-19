@@ -6,7 +6,7 @@ use ash::{
         api_version_major, api_version_minor, DeviceCreateInfo, DeviceQueueCreateInfo, Fence,
         FenceCreateFlags, FenceCreateInfo, Format, FormatFeatureFlags, ImageTiling,
         MemoryPropertyFlags, PhysicalDevice, PhysicalDeviceFeatures, PhysicalDeviceProperties,
-        Queue, QueueFlags, Semaphore, SemaphoreCreateInfo, SurfaceKHR, TRUE,
+        Queue, QueueFlags, SampleCountFlags, Semaphore, SemaphoreCreateInfo, SurfaceKHR, TRUE,
     },
     Device, Instance,
 };
@@ -20,6 +20,7 @@ pub struct BigusDevice {
     pub instance: Instance,
     pub phys_dev: PhysicalDevice,
     pub phys_dev_capabilities: PhysicalDeviceProperties,
+    pub max_sample_count: SampleCountFlags,
     pub dev: Device,
     pub swapchain_dev: ash::khr::swapchain::Device,
     pub queues: QueueFamilies,
@@ -27,19 +28,18 @@ pub struct BigusDevice {
 }
 
 impl BigusDevice {
-    pub(super) fn new(instance: &Instance, surface: SurfaceKHR, surface_instance: SurfaceInstance) -> Self {
+    pub(super) fn new(
+        instance: &Instance,
+        surface: SurfaceKHR,
+        surface_instance: SurfaceInstance,
+    ) -> Self {
         let physical_device = *unsafe {
             instance
                 .enumerate_physical_devices()
                 .unwrap()
                 .iter()
                 .find(|device| {
-                    Self::is_device_suitable(
-                        instance,
-                        **device,
-                        &surface_instance,
-                        surface,
-                    )
+                    Self::is_device_suitable(instance, **device, &surface_instance, surface)
                 })
                 .expect("No physical devices found")
         };
@@ -51,11 +51,30 @@ impl BigusDevice {
             instance,
             physical_device,
             surface.clone(),
-            &surface_instance
+            &surface_instance,
         );
 
         let device_capabilities =
             unsafe { instance.get_physical_device_properties(physical_device) };
+
+        let sample_counts = device_capabilities.limits.framebuffer_color_sample_counts
+            & device_capabilities.limits.framebuffer_depth_sample_counts;
+
+        let max_sample_count = if sample_counts.contains(SampleCountFlags::TYPE_64) {
+            SampleCountFlags::TYPE_64
+        } else if sample_counts.contains(SampleCountFlags::TYPE_32) {
+            SampleCountFlags::TYPE_32
+        } else if sample_counts.contains(SampleCountFlags::TYPE_16) {
+            SampleCountFlags::TYPE_16
+        } else if sample_counts.contains(SampleCountFlags::TYPE_8) {
+            SampleCountFlags::TYPE_8
+        } else if sample_counts.contains(SampleCountFlags::TYPE_4) {
+            SampleCountFlags::TYPE_4
+        } else if sample_counts.contains(SampleCountFlags::TYPE_2) {
+            SampleCountFlags::TYPE_2
+        } else {
+            SampleCountFlags::TYPE_1
+        };
 
         let device_name = device_capabilities
             .device_name_as_c_str()
@@ -89,6 +108,7 @@ impl BigusDevice {
 
         let device_features = PhysicalDeviceFeatures {
             sampler_anisotropy: TRUE,
+            sample_rate_shading: TRUE,
             ..Default::default()
         };
 
@@ -125,10 +145,11 @@ impl BigusDevice {
             instance: instance.clone(),
             phys_dev: physical_device,
             phys_dev_capabilities: physical_device_capabilities,
+            max_sample_count,
             swapchain_dev,
             dev: device,
             queues,
-            queue_family_indices
+            queue_family_indices,
         }
     }
 
@@ -138,8 +159,12 @@ impl BigusDevice {
         surface_instance: &SurfaceInstance,
         surface: SurfaceKHR,
     ) -> bool {
-        let queue_families =
-            QueueFamilyIndices::find_queue_families(instance, device, surface.clone(), &surface_instance);
+        let queue_families = QueueFamilyIndices::find_queue_families(
+            instance,
+            device,
+            surface.clone(),
+            &surface_instance,
+        );
 
         let swap_chain_support =
             SwapChainSupport::new(device.clone(), surface_instance, surface.clone());
@@ -170,8 +195,10 @@ impl BigusDevice {
         features: FormatFeatureFlags,
     ) -> Format {
         for candidate in candidates {
-            let format_props =
-                unsafe { self.instance.get_physical_device_format_properties(self.phys_dev, candidate) };
+            let format_props = unsafe {
+                self.instance
+                    .get_physical_device_format_properties(self.phys_dev, candidate)
+            };
 
             match tiling {
                 ImageTiling::LINEAR if format_props.linear_tiling_features.contains(features) => {
@@ -206,8 +233,10 @@ impl BigusDevice {
     }
 
     pub fn create_sync_objects(&self) -> (Vec<Semaphore>, Vec<Semaphore>, Vec<Fence>) {
-        let mut image_available_semaphores: Vec<Semaphore> = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
-        let mut render_finished_semaphores: Vec<Semaphore> = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
+        let mut image_available_semaphores: Vec<Semaphore> =
+            Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
+        let mut render_finished_semaphores: Vec<Semaphore> =
+            Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
         let mut in_flight_fences: Vec<Fence> = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
 
         let semaphore_info = SemaphoreCreateInfo {
@@ -221,13 +250,19 @@ impl BigusDevice {
 
         for _ in 0..MAX_FRAMES_IN_FLIGHT {
             unsafe {
-                image_available_semaphores.push(self.dev.create_semaphore(&semaphore_info, None).unwrap());
-                render_finished_semaphores.push(self.dev.create_semaphore(&semaphore_info, None).unwrap());
-                in_flight_fences.push(self.dev.create_fence(&fence_info, None).unwrap()); 
+                image_available_semaphores
+                    .push(self.dev.create_semaphore(&semaphore_info, None).unwrap());
+                render_finished_semaphores
+                    .push(self.dev.create_semaphore(&semaphore_info, None).unwrap());
+                in_flight_fences.push(self.dev.create_fence(&fence_info, None).unwrap());
             }
         }
 
-        (image_available_semaphores, render_finished_semaphores, in_flight_fences)
+        (
+            image_available_semaphores,
+            render_finished_semaphores,
+            in_flight_fences,
+        )
     }
 }
 
