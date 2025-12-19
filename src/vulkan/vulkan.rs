@@ -196,7 +196,7 @@ impl VulkanRenderer {
         let (image, mip_levels) =
             bigus_device.create_texture_image("assets/textures/viking_room.png", &command_pool);
 
-        let image_views = bigus_device.create_image_views(images, image_format.format, mip_levels);
+        let image_views = bigus_device.create_image_views(images, image_format.format, 1);
 
         let (color_image, color_image_view, color_image_memory) = bigus_device
             .create_color_resources(

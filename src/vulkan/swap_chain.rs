@@ -210,7 +210,7 @@ impl VulkanRenderer {
 
         let image_views =
             self.device
-                .create_image_views(images, image_format.format, self.mip_levels);
+                .create_image_views(images, image_format.format, 1);
 
         let (color_image, color_image_view, color_image_memory) = self
             .device

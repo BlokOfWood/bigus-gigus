@@ -224,24 +224,24 @@ impl BigusDevice {
 
                 mip_width = new_mip_width as u32;
                 mip_height = new_mip_height as u32;
-
-                barrier.subresource_range.base_mip_level = mip_levels - 1;
-                barrier.old_layout = ImageLayout::TRANSFER_DST_OPTIMAL;
-                barrier.new_layout = ImageLayout::SHADER_READ_ONLY_OPTIMAL;
-                barrier.src_access_mask = AccessFlags::TRANSFER_WRITE;
-                barrier.dst_access_mask = AccessFlags::SHADER_READ;
-
-                self.dev.cmd_pipeline_barrier(
-                    command_buffer,
-                    PipelineStageFlags::TRANSFER,
-                    PipelineStageFlags::FRAGMENT_SHADER,
-                    DependencyFlags::empty(),
-                    &[],
-                    &[],
-                    &[barrier],
-                );
             };
         }
+
+        barrier.subresource_range.base_mip_level = mip_levels - 1;
+        barrier.old_layout = ImageLayout::TRANSFER_DST_OPTIMAL;
+        barrier.new_layout = ImageLayout::SHADER_READ_ONLY_OPTIMAL;
+        barrier.src_access_mask = AccessFlags::TRANSFER_WRITE;
+        barrier.dst_access_mask = AccessFlags::SHADER_READ;
+
+        unsafe { self.dev.cmd_pipeline_barrier(
+            command_buffer,
+            PipelineStageFlags::TRANSFER,
+            PipelineStageFlags::FRAGMENT_SHADER,
+            DependencyFlags::empty(),
+            &[],
+            &[],
+            &[barrier],
+        ) };
 
         self.end_single_time_commands(command_pool, command_buffer);
     }
