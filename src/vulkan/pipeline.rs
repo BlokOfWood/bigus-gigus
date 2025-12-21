@@ -11,7 +11,7 @@ use ash::vk::{
     PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo,
     PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo,
     PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo,
-    PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, RenderPass, SampleCountFlags,
+    PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, RenderPass,
     Sampler, ShaderStageFlags, WriteDescriptorSet, FALSE, TRUE,
 };
 
