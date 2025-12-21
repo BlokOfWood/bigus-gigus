@@ -12,28 +12,31 @@ const WORLD_RIGHT: Vector3 = Vector3 {
 }; // For edge case
 
 pub fn look_at(center: Vector3, eye: Vector3) -> Matrix4 {
-    let forward = (center - eye).normalize();
+    let forward = (eye - center).normalize();
+    let right = WORLD_UP.cross_product(forward).normalize();
+    let up = forward.cross_product(right).normalize();
 
-    let right = if forward.y.abs() > 0.999 {
-        let approx_up = forward.cross_product(WORLD_RIGHT).normalize();
-        approx_up.cross_product(forward).normalize()
-    } else {
-        forward.cross_product(WORLD_UP).normalize()
-    };
+    let tx = eye.dot(right);
+    let ty = eye.dot(up);
+    let tz = eye.dot(forward);
 
-    let up = right.cross_product(forward).normalize();
-
-    let tx = -right.dot(eye);
-    let ty = -up.dot(eye);
-    let tz = forward.dot(eye);
-
-    ([
-        [right.x, right.y, right.z, 0.0],          // col 0 (right)
-        [up.x, up.y, up.z, 0.0],                   // col 1 (up)
-        [-forward.x, -forward.y, -forward.z, 0.0], // col 2 (-forward)
-        [tx, ty, tz, 1.0],                         // col 3
+    let rotation_matrix: Matrix4 = ([
+        [right.x, up.x, forward.x, 0.0], // col 0 (right)
+        [right.y, up.y, forward.y, 0.0], // col 1 (up)
+        [right.z, up.z, forward.z, 0.0], // col 2 (-forward)
+        [0.0, 0.0, 0.0, 1.0],            // col 3
     ])
-    .into()
+    .into();
+
+    let translation_matrix: Matrix4 = [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [-tx, -ty, -tz, 1.0],
+    ]
+    .into();
+
+    translation_matrix * rotation_matrix
 }
 
 pub fn perspective(horizontal_fov: f32, aspect_ratio: f32, near: f32, far: f32) -> Matrix4 {

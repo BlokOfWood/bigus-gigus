@@ -2,7 +2,7 @@ use std::{
     ffi::{CStr, CString},
     os::raw::c_void,
     sync::Arc,
-    time::Instant,
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use ash::{
@@ -426,7 +426,13 @@ impl VulkanRenderer {
             _ => return,
         }
 
-        println!("Position - x: {}, y: {}, z: {}", self.x, self.y, self.z);
+        println!(
+            "{} Position - x: {}, y: {}, z: {}",
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            self.x,
+            self.y,
+            self.z
+        );
     }
 
     pub fn draw_frame(&mut self) {

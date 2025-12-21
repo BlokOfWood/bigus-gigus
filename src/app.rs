@@ -8,7 +8,7 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::vulkan::vulkan::VulkanRenderer;
+use crate::{ecs::ecs_runner::EcsRunner, vulkan::vulkan::VulkanRenderer};
 
 const DEFAULT_WINDOW_WIDTH: u16 = 800;
 const DEFAULT_WINDOW_HEIGHT: u16 = 600;
@@ -20,6 +20,7 @@ pub struct App {
     pub window: Option<Arc<Window>>,
     /// The vulkan renderer that will be used to render the application
     pub vk_renderer: Option<VulkanRenderer>,
+    pub ecs_runner: EcsRunner,
 }
 
 impl App {
@@ -32,6 +33,7 @@ impl App {
             window: None,
             event_loop: Some(event_loop),
             vk_renderer: None,
+            ecs_runner: EcsRunner::new()
         }
     }
 
@@ -74,17 +76,19 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
+                self.ecs_runner.tick();
+
                 if let Some(vk_renderer) = &mut self.vk_renderer {
                     vk_renderer.draw_frame();
                 };
                 self.window.as_ref().unwrap().request_redraw();
-            },
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 if let Some(vk_renderer) = &mut self.vk_renderer {
                     vk_renderer.process_key_event(event);
                     vk_renderer.draw_frame();
                 };
-            }, 
+            }
             WindowEvent::Resized(new_size) => {
                 if new_size.width == 0 || new_size.height == 0 {
                     return;
