@@ -24,15 +24,13 @@ use winit::{
     window::Window,
 };
 
-use crate::loaders::obj::Model;
-
-use crate::vulkan::{
+use crate::{resource_handling::{resource_handle::ResourceHandle, resource_handler::ResourceHandler, resources::mesh::Model}, vulkan::{
     buffers::Vertex,
     command_pool::create_render_pass,
     device_and_queues::QueueFamilyIndices,
     pipeline::{create_descriptor_set_layout, create_graphics_pipeline},
     window::{create_surface, enumerate_required_extensions},
-};
+}};
 
 use ash::khr::surface::Instance as SurfaceInstance;
 
@@ -79,11 +77,9 @@ pub struct VulkanRenderer {
     image_available_semaphores: Vec<Semaphore>,
     render_finished_semaphores: Vec<Semaphore>,
 
-    pub(super) vertices: Vec<Vertex>,
-    pub(super) indices: Vec<u32>,
-
     vertex_buffer: Buffer,
     index_buffer: Buffer,
+    index_count: u32,
 
     pub(super) start_time: Instant,
     pub(super) command_buffers: Vec<CommandBuffer>,
@@ -94,8 +90,9 @@ pub struct VulkanRenderer {
 }
 
 impl VulkanRenderer {
-    pub fn new(window: Arc<Window>, event_loop: &ActiveEventLoop) -> Self {
-        let model = Model::load_obj("assets/models/viking_room.obj");
+    pub fn new(window: Arc<Window>, event_loop: &ActiveEventLoop, resource_handler: &mut ResourceHandler) -> Self {
+        let room_model_handle = resource_handler.load_resource("assets/models/viking_room.obj").unwrap();
+        let model: &Model = resource_handler.retreive_resource(&room_model_handle).unwrap();
 
         let entry = Entry::linked();
 
@@ -261,10 +258,9 @@ impl VulkanRenderer {
             descriptor_sets,
             render_pass,
             swapchain,
-            vertices: model.vertices,
-            indices: model.indices,
             vertex_buffer,
             index_buffer,
+            index_count: model.indices.len() as u32,
             mip_levels,
 
             color_image,
@@ -393,7 +389,7 @@ impl VulkanRenderer {
 
             self.device.dev.cmd_draw_indexed(
                 *command_buffer,
-                self.indices.len() as u32,
+                self.index_count,
                 1,
                 0,
                 0,

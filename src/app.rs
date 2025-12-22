@@ -8,7 +8,7 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::{ecs::ecs_runner::EcsRunner, resource_handling::resource_handler::ResourceHandler, vulkan::vulkan::VulkanRenderer};
+use crate::{resource_handling::resource_handler::ResourceHandler, vulkan::vulkan::VulkanRenderer};
 
 const DEFAULT_WINDOW_WIDTH: u16 = 800;
 const DEFAULT_WINDOW_HEIGHT: u16 = 600;
@@ -19,8 +19,7 @@ pub struct App {
     /// The window that the application will be running in
     pub window: Option<Arc<Window>>,
     /// The vulkan renderer that will be used to render the application
-    pub vk_renderer: Option<VulkanRenderer>,
-    pub ecs_runner: EcsRunner,
+    vk_renderer: Option<VulkanRenderer>,
     pub resource_handler: ResourceHandler,
 }
 
@@ -35,7 +34,6 @@ impl App {
             event_loop: Some(event_loop),
             vk_renderer: None,
             resource_handler: ResourceHandler::new(),
-            ecs_runner: EcsRunner::new()
         }
     }
 
@@ -66,7 +64,7 @@ impl ApplicationHandler for App {
 
         if self.vk_renderer.is_none() {
             // Initalizes the vulkan renderer with a reference to the window and event loop
-            let vk_renderer = VulkanRenderer::new(window, event_loop);
+            let vk_renderer = VulkanRenderer::new(window, event_loop, &mut self.resource_handler);
             self.vk_renderer = Some(vk_renderer);
         }
     }
@@ -78,8 +76,6 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                self.ecs_runner.tick();
-
                 if let Some(vk_renderer) = &mut self.vk_renderer {
                     vk_renderer.draw_frame();
                 };
