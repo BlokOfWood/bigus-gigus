@@ -1,7 +1,7 @@
 use ahash::{HashMap, HashMapExt};
 
 use crate::resource_handling::{
-    loadable::Loadable,
+    loadable::LoadableResource,
     resource::Resource,
     resource_errors::{ResourceLoadError, ResourceReferenceError},
     resource_handle::ResourceHandle,
@@ -10,7 +10,7 @@ use crate::resource_handling::{
 /**
    The resource handler has the following goals:
     * Make resource loading its own responsibility
-    * Abstract away resource
+    * Abstract away resource ownership
 */
 pub struct ResourceHandler {
     resources: HashMap<u32, Box<dyn Resource>>,
@@ -41,7 +41,7 @@ impl ResourceHandler {
         }
     }
 
-    pub fn load_resource<T: Resource + Loadable>(
+    pub fn load_resource<T: LoadableResource>(
         &mut self,
         path: &str,
     ) -> Result<ResourceHandle<T>, ResourceLoadError> {

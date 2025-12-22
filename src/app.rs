@@ -8,7 +8,7 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::{ecs::ecs_runner::EcsRunner, vulkan::vulkan::VulkanRenderer};
+use crate::{ecs::ecs_runner::EcsRunner, resource_handling::resource_handler::ResourceHandler, vulkan::vulkan::VulkanRenderer};
 
 const DEFAULT_WINDOW_WIDTH: u16 = 800;
 const DEFAULT_WINDOW_HEIGHT: u16 = 600;
@@ -21,6 +21,7 @@ pub struct App {
     /// The vulkan renderer that will be used to render the application
     pub vk_renderer: Option<VulkanRenderer>,
     pub ecs_runner: EcsRunner,
+    pub resource_handler: ResourceHandler,
 }
 
 impl App {
@@ -33,6 +34,7 @@ impl App {
             window: None,
             event_loop: Some(event_loop),
             vk_renderer: None,
+            resource_handler: ResourceHandler::new(),
             ecs_runner: EcsRunner::new()
         }
     }
