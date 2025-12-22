@@ -25,7 +25,7 @@ impl ResourceHandler {
         }
     }
 
-    pub fn retreive_resource<T: Resource + 'static>(
+    pub fn retrieve_resource<T: Resource + 'static>(
         &self,
         resource_handle: &ResourceHandle<T>,
     ) -> Result<&T, ResourceReferenceError> {

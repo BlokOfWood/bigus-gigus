@@ -92,7 +92,7 @@ pub struct VulkanRenderer {
 impl VulkanRenderer {
     pub fn new(window: Arc<Window>, event_loop: &ActiveEventLoop, resource_handler: &mut ResourceHandler) -> Self {
         let room_model_handle = resource_handler.load_resource("assets/models/viking_room.obj").unwrap();
-        let model: &Model = resource_handler.retreive_resource(&room_model_handle).unwrap();
+        let model: &Model = resource_handler.retrieve_resource(&room_model_handle).unwrap();
 
         let entry = Entry::linked();
 
