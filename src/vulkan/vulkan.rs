@@ -2,7 +2,7 @@ use std::{
     ffi::{CStr, CString},
     os::raw::c_void,
     sync::Arc,
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use ash::{
@@ -24,8 +24,7 @@ use winit::{
     window::Window,
 };
 
-use crate::{resource_handling::{resource_handle::ResourceHandle, resource_handler::ResourceHandler, resources::mesh::Model}, vulkan::{
-    buffers::Vertex,
+use crate::{ecs::{builtins::mesh::Mesh, ecs_runner::EcsRunner}, resource_handling::{resource_handler::ResourceHandler, resources::mesh::Model}, vulkan::{
     command_pool::create_render_pass,
     device_and_queues::QueueFamilyIndices,
     pipeline::{create_descriptor_set_layout, create_graphics_pipeline},
@@ -58,7 +57,7 @@ pub struct VulkanRenderer {
     pub(super) surface_instance: SurfaceInstance,
     pub(super) surface: SurfaceKHR,
 
-    pub mip_levels: u32,
+    //pub mip_levels: u32,
 
     pub(super) color_image: Image,
     pub(super) color_image_view: ImageView,
@@ -81,7 +80,7 @@ pub struct VulkanRenderer {
     index_buffer: Buffer,
     index_count: u32,
 
-    pub(super) start_time: Instant,
+    //pub(super) start_time: Instant,
     pub(super) command_buffers: Vec<CommandBuffer>,
 
     pub x: f32,
@@ -90,9 +89,16 @@ pub struct VulkanRenderer {
 }
 
 impl VulkanRenderer {
-    pub fn new(window: Arc<Window>, event_loop: &ActiveEventLoop, resource_handler: &mut ResourceHandler) -> Self {
+    pub fn new(window: Arc<Window>, event_loop: &ActiveEventLoop, resource_handler: &mut ResourceHandler, ecs: &mut EcsRunner) -> Self {
         let room_model_handle = resource_handler.load_resource("assets/models/viking_room.obj").unwrap();
         let model: &Model = resource_handler.retrieve_resource(&room_model_handle).unwrap();
+
+        ecs.add_component(Mesh{indices:model.indices.clone(), vertices:model.vertices.clone()});
+        let meshes = ecs.query::<Mesh>();
+
+        for mesh in meshes {
+            println!("Mesh - Vertices: {}, Indices: {}", mesh.vertices.len(), mesh.indices.len());
+        }
 
         let entry = Entry::linked();
 
@@ -261,7 +267,7 @@ impl VulkanRenderer {
             vertex_buffer,
             index_buffer,
             index_count: model.indices.len() as u32,
-            mip_levels,
+            //mip_levels,
 
             color_image,
             color_image_memory,
@@ -280,7 +286,7 @@ impl VulkanRenderer {
             render_finished_semaphores,
             _uniform_buffers: uniform_buffers,
             uniform_buffers_mapped,
-            start_time: Instant::now(),
+            //start_time: Instant::now(),
             command_buffers,
             x: -2.0,
             y: -2.0,

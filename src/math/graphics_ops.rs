@@ -5,11 +5,6 @@ const WORLD_UP: Vector3 = Vector3 {
     y: 1.0,
     z: 0.0,
 };
-const WORLD_RIGHT: Vector3 = Vector3 {
-    x: 1.0,
-    y: 0.0,
-    z: 0.0,
-}; // For edge case
 
 pub fn look_at(center: Vector3, eye: Vector3) -> Matrix4 {
     let forward = (eye - center).normalize();

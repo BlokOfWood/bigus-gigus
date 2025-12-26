@@ -1,3 +1,4 @@
+#[allow(unused)]
 pub struct System {
     id: u32,
     tick_function: TickFunction,
