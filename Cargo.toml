@@ -9,7 +9,6 @@ ahash = "*"
 image = { version = "0.25" }
 smallvec = "*"
 ash = {version = "0.38", features = ["debug","loaded","linked","std"]}
-component_derive = { path="../component_derive" }
 
 [profile.release]
 debug = 1

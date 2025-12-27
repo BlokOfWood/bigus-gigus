@@ -5,3 +5,4 @@ pub mod system;
 pub mod builtins {
     pub mod mesh;
 }
+mod component_container;

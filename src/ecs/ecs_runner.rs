@@ -1,51 +1,41 @@
-use std::slice::from_raw_parts;
-
-use ahash::{HashMap, HashMapExt};
-
 use crate::ecs::{
-    component::{Component},
-    entity::Entity,
-    system::System,
+    component::Component, component_container::ComponentContainer, entity::Entity, system::System,
 };
 
 #[allow(unused)]
 pub struct EcsRunner {
     entities: Vec<Entity>,
-    components: HashMap<&'static str, Vec<u8>>,
+    components: ComponentContainer,
     systems: Vec<System>,
+    next_entity_id: u32,
 }
 
 impl EcsRunner {
     pub fn new() -> Self {
         EcsRunner {
             entities: Vec::new(),
-            components: HashMap::new(),
+            components: ComponentContainer::new(),
             systems: Vec::new(),
+            next_entity_id: 0,
         }
     }
 
-    pub fn add_component<T: Component>(&mut self, component: T) {
-        println!("Adding component of type {}", T::get_type_fingerprint());
+    pub fn create_entity(&mut self) -> Entity {
+        let entity = Entity {
+            id: self.next_entity_id,
+        };
+        self.next_entity_id += 1;
+        self.entities.push(entity);
 
-        self.components
-            .entry(T::get_type_fingerprint())
-            .or_insert(Vec::new())
-            .extend_from_slice(unsafe {
-                from_raw_parts(
-                    (&component as *const T) as *const u8,
-                    size_of::<T>(),
-                )
-            });
+        self.entities[self.entities.len() - 1]
     }
 
-    pub fn query<T: Component>(&self) -> Vec<&T> {
-        self.components
-            .get(T::get_type_fingerprint())
-            .or(Some(&Vec::new()))
-            .unwrap()
-            .chunks(size_of::<T>())
-            .map(|chunk| unsafe { &*(chunk.as_ptr() as *const T) })
-            .collect()
+    pub fn add_component<T: Component + 'static>(&mut self, entity: &Entity, component: T) {
+        self.components.add_component(entity, component);
+    }
+
+    pub fn query<T: Component + 'static>(&self) -> Vec<&T> {
+        self.components.query::<T>()
     }
 
     pub fn tick(&self) {
