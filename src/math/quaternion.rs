@@ -21,6 +21,10 @@ impl Quaternion {
         }
     }
 
+    pub fn identity() -> Self {
+        Quaternion { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }
+    }
+
     pub fn into_rotation_matrix(self) -> Matrix4 {
         let x = self.x;
         let x_2 = x * x;

@@ -11,11 +11,13 @@ use ash::vk::{
     PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo,
     PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo,
     PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo,
-    PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, RenderPass,
+    PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, PushConstantRange, RenderPass,
     Sampler, ShaderStageFlags, WriteDescriptorSet, FALSE, TRUE,
 };
 
-use crate::vulkan::{ubo::UniformBufferObject, vulkan::MAX_FRAMES_IN_FLIGHT};
+use crate::vulkan::{
+    push_constants::PushConstant, ubo::UniformBufferObject, vulkan::MAX_FRAMES_IN_FLIGHT,
+};
 
 use super::{buffers::VertexBuffer, device_and_queues::BigusDevice, shader::Shaders};
 
@@ -242,9 +244,18 @@ pub(super) fn create_graphics_pipeline(
         ..Default::default()
     };
 
+    let push_constants = [PushConstantRange {
+        stage_flags: ShaderStageFlags::VERTEX,
+        offset: 0,
+        size: size_of::<PushConstant>() as u32,
+        ..Default::default()
+    }];
+
     let pipeline_layout_info = PipelineLayoutCreateInfo {
         set_layout_count: 1,
         p_set_layouts: descriptor_set_layouts.as_ptr(),
+        p_push_constant_ranges: push_constants.as_ptr(),
+        push_constant_range_count: push_constants.len() as u32,
         ..Default::default()
     };
 

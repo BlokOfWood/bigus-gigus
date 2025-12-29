@@ -6,6 +6,19 @@ const WORLD_UP: Vector3 = Vector3 {
     z: 0.0,
 };
 
+fn translation_matrix(position: Vector3) -> Matrix4 {
+    [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [position.x, position.y, position.z, 1.0],
+    ].into()
+}
+
+pub fn model_matrix(position: Vector3) -> Matrix4 {
+    translation_matrix(position)
+}
+
 pub fn look_at(center: Vector3, eye: Vector3) -> Matrix4 {
     let forward = (eye - center).normalize();
     let right = WORLD_UP.cross_product(forward).normalize();
@@ -23,14 +36,7 @@ pub fn look_at(center: Vector3, eye: Vector3) -> Matrix4 {
     ])
     .into();
 
-    let translation_matrix: Matrix4 = [
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [-tx, -ty, -tz, 1.0],
-    ]
-    .into();
-
+    let translation_matrix: Matrix4 = translation_matrix(Vector3::new(-tx,-ty,-tz));
     translation_matrix * rotation_matrix
 }
 

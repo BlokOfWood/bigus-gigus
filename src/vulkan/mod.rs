@@ -8,3 +8,5 @@ pub mod pipeline;
 pub mod shader;
 pub mod buffers;
 pub mod ubo;
+pub mod render_object;
+pub mod push_constants;

@@ -1,3 +1,4 @@
+use ::core::{mem::size_of, slice::from_raw_parts};
 use std::{
     ffi::{CStr, CString},
     os::raw::c_void,
@@ -11,8 +12,8 @@ use ash::{
         CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, DescriptorSet,
         DeviceMemory, Extent2D, Fence, Framebuffer, Image, ImageView, IndexType, Offset2D,
         Pipeline, PipelineBindPoint, PipelineLayout, PipelineStageFlags, PresentInfoKHR, Rect2D,
-        RenderPass, RenderPassBeginInfo, Result, Semaphore, SubmitInfo, SubpassContents,
-        SurfaceKHR, SwapchainKHR, Viewport, KHR_SWAPCHAIN_NAME,
+        RenderPass, RenderPassBeginInfo, Result, Semaphore, ShaderStageFlags, SubmitInfo,
+        SubpassContents, SurfaceKHR, SwapchainKHR, Viewport, KHR_SWAPCHAIN_NAME,
     },
     Entry, Instance,
 };
@@ -26,11 +27,14 @@ use winit::{
 
 use crate::{
     ecs::{builtins::mesh::Mesh, ecs_runner::EcsRunner},
+    math::{graphics_ops::model_matrix, matrix::Matrix4, vector::Vector3},
     resource_handling::{resource_handler::ResourceHandler, resources::mesh::Model},
     vulkan::{
         command_pool::create_render_pass,
         device_and_queues::QueueFamilyIndices,
         pipeline::{create_descriptor_set_layout, create_graphics_pipeline},
+        push_constants::PushConstant,
+        render_object::RenderObject,
         window::{create_surface, enumerate_required_extensions},
     },
 };
@@ -79,9 +83,7 @@ pub struct VulkanRenderer {
     image_available_semaphores: Vec<Semaphore>,
     render_finished_semaphores: Vec<Semaphore>,
 
-    vertex_buffer: Buffer,
-    index_buffer: Buffer,
-    index_count: u32,
+    render_objects: Vec<RenderObject>,
 
     //pub(super) start_time: Instant,
     pub(super) command_buffers: Vec<CommandBuffer>,
@@ -251,11 +253,20 @@ impl VulkanRenderer {
 
         let image_sampler = bigus_device.create_texture_sampler();
 
-        let (vertex_buffer, _vertex_buffer_memory) =
-            bigus_device.create_vertex_buffer(&model.vertices, &command_pool);
+        let mut render_objects = Vec::new();
+        render_objects.push(bigus_device.create_render_object(
+            Vector3::new(0.0, 0.0, 0.0),
+            &model.vertices,
+            &model.indices,
+            &command_pool,
+        ));
 
-        let (index_buffer, _index_buffer_memory) =
-            bigus_device.create_index_buffer(&model.indices, &command_pool);
+        render_objects.push(bigus_device.create_render_object(
+            Vector3::new(1.0, 0.0, 0.0),
+            &model.vertices,
+            &model.indices,
+            &command_pool,
+        ));
 
         let (uniform_buffers, _uniform_buffer_memories, uniform_buffers_mapped) =
             bigus_device.create_uniform_buffers();
@@ -287,9 +298,6 @@ impl VulkanRenderer {
             descriptor_sets,
             render_pass,
             swapchain,
-            vertex_buffer,
-            index_buffer,
-            index_count: model.indices.len() as u32,
             //mip_levels,
             color_image,
             color_image_memory,
@@ -298,6 +306,8 @@ impl VulkanRenderer {
             depth_image,
             depth_image_memory,
             depth_image_view,
+
+            render_objects,
 
             framebuffers,
             swapchain_image_views: image_views,
@@ -392,32 +402,52 @@ impl VulkanRenderer {
                 }],
             );
 
-            self.device.dev.cmd_bind_vertex_buffers(
-                *command_buffer,
-                0,
-                &[self.vertex_buffer],
-                &[0],
-            );
+            for render_object in &self.render_objects {
+                self.device.dev.cmd_bind_vertex_buffers(
+                    *command_buffer,
+                    0,
+                    &[render_object.vertex_buffer],
+                    &[0],
+                );
 
-            self.device.dev.cmd_bind_index_buffer(
-                *command_buffer,
-                self.index_buffer,
-                0,
-                IndexType::UINT32,
-            );
+                self.device.dev.cmd_bind_index_buffer(
+                    *command_buffer,
+                    render_object.index_buffer,
+                    0,
+                    IndexType::UINT32,
+                );
 
-            self.device.dev.cmd_bind_descriptor_sets(
-                *command_buffer,
-                PipelineBindPoint::GRAPHICS,
-                self.pipeline_layout,
-                0,
-                &[self.descriptor_sets[self.current_frame as usize]],
-                &[],
-            );
+                self.device.dev.cmd_bind_descriptor_sets(
+                    *command_buffer,
+                    PipelineBindPoint::GRAPHICS,
+                    self.pipeline_layout,
+                    0,
+                    &[self.descriptor_sets[self.current_frame as usize]],
+                    &[],
+                );
 
-            self.device
-                .dev
-                .cmd_draw_indexed(*command_buffer, self.index_count, 1, 0, 0, 0);
+                let model = model_matrix(render_object.position);
+
+                self.device.dev.cmd_push_constants(
+                    *command_buffer,
+                    self.pipeline_layout,
+                    ShaderStageFlags::VERTEX,
+                    0,
+                    from_raw_parts(
+                        (&PushConstant { model } as *const PushConstant) as *const u8,
+                        size_of::<PushConstant>(),
+                    ),
+                );
+
+                self.device.dev.cmd_draw_indexed(
+                    *command_buffer,
+                    render_object.index_count,
+                    1,
+                    0,
+                    0,
+                    0,
+                );
+            }
 
             self.device.dev.cmd_end_render_pass(*command_buffer);
 
@@ -493,6 +523,7 @@ impl VulkanRenderer {
 
         let aspect_ratio =
             self.window.inner_size().width as f32 / self.window.inner_size().height as f32;
+
         self.update_uniform_buffer(self.current_frame as usize, aspect_ratio);
 
         unsafe {

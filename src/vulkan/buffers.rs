@@ -7,14 +7,12 @@ use ash::vk::{
 
 use crate::{
     math::{
-        graphics_ops::{look_at, perspective},
-        quaternion::Quaternion,
-        vector::{Vector3, VECTOR3_ZERO},
+        graphics_ops::{look_at, perspective}, vector::{VECTOR3_ZERO, Vector3}
     },
     vulkan::{
         device_and_queues::BigusDevice,
         ubo::UniformBufferObject,
-        vulkan::{VulkanRenderer, MAX_FRAMES_IN_FLIGHT},
+        vulkan::{MAX_FRAMES_IN_FLIGHT, VulkanRenderer},
     },
 };
 
@@ -27,51 +25,6 @@ pub struct Vertex {
     pub color: [f32; 3],
     pub tex_coord: [f32; 2],
 }
-
-/*pub const VERTICES: [Vertex; 8] = [
-    Vertex {
-        pos: [-0.5, -0.5, 0.0],
-        color: [1.0, 0.0, 0.0],
-        tex_coord: [0.0, 0.0],
-    },
-    Vertex {
-        pos: [0.5, -0.5, 0.0],
-        color: [0.0, 1.0, 0.0],
-        tex_coord: [1.0, 0.0],
-    },
-    Vertex {
-        pos: [0.5, 0.5, 0.0],
-        color: [0.0, 0.0, 1.0],
-        tex_coord: [1.0, 1.0],
-    },
-    Vertex {
-        pos: [-0.5, 0.5, 0.0],
-        color: [1.0, 1.0, 1.0],
-        tex_coord: [0.0, 1.0],
-    },
-    Vertex {
-        pos: [-0.5, -0.5, -0.5],
-        color: [1.0, 0.0, 0.0],
-        tex_coord: [0.0, 0.0],
-    },
-    Vertex {
-        pos: [0.5, -0.5, -0.5],
-        color: [0.0, 1.0, 0.0],
-        tex_coord: [1.0, 0.0],
-    },
-    Vertex {
-        pos: [0.5, 0.5, -0.5],
-        color: [0.0, 0.0, 1.0],
-        tex_coord: [1.0, 1.0],
-    },
-    Vertex {
-        pos: [-0.5, 0.5, -0.5],
-        color: [1.0, 1.0, 1.0],
-        tex_coord: [0.0, 1.0],
-    },
-];
-
-pub const INDICES: [u32; 12] = [0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4];*/
 
 pub struct VertexBuffer;
 
@@ -346,15 +299,13 @@ impl BigusDevice {
 }
 
 impl VulkanRenderer {
-    pub(super) fn update_uniform_buffer(&mut self, current_frame: usize, aspect_ratio: f32) {
+    pub(super) fn update_uniform_buffer(&self, current_frame: usize, aspect_ratio: f32) {
         let view= look_at(
             VECTOR3_ZERO,
             Vector3::new(self.x, self.y, self.z),
         );
 
         let uniform_buffer_new_contents = UniformBufferObject {
-            model: Quaternion::new(Vector3::new(0.0 , 1.0, 0.0), 0.0/*elapsed_time.as_secs_f32()*/)
-                .into_rotation_matrix(),
             view,
             proj: perspective(60.0, aspect_ratio, 0.1, 100.0),
         };
