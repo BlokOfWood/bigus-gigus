@@ -1,7 +1,7 @@
 #[derive(Debug)]
 pub enum ResourceReferenceError {
-    NotFound,
-    TypeMismatch
+    InvalidResourceHandle,
+    TypeMismatch,
 }
 
 #[derive(Debug)]

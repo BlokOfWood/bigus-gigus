@@ -4,7 +4,7 @@ use crate::resource_handling::resource::Resource;
 
 pub struct ResourceHandle<T: Resource> {
     pub(super) id: u32,
-    is_valid: bool,
+    pub(super)is_valid: bool,
     phantom: PhantomData<T>
 }
 

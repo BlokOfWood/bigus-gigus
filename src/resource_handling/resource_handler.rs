@@ -29,6 +29,10 @@ impl ResourceHandler {
         &self,
         resource_handle: &ResourceHandle<T>,
     ) -> Result<&T, ResourceReferenceError> {
+        if !resource_handle.is_valid {
+            return Err(ResourceReferenceError::InvalidResourceHandle);
+        }
+
         if let Some(resource) = &self.resources.get(&resource_handle.id) {
             let requested_resource = resource.as_any().downcast_ref::<T>();
 
@@ -37,7 +41,7 @@ impl ResourceHandler {
                 None => Err(ResourceReferenceError::TypeMismatch),
             }
         } else {
-            Err(ResourceReferenceError::NotFound)
+            Err(ResourceReferenceError::InvalidResourceHandle)
         }
     }
 
@@ -62,7 +66,8 @@ impl ResourceHandler {
         return ResourceHandle::new(self.next_id);
     }
 
-    pub fn release_resource<T: Resource>(&mut self, resource_handle: ResourceHandle<T>) {
+    pub fn release_resource<T: Resource>(&mut self, mut resource_handle: ResourceHandle<T>) {
         self.resources.remove(&resource_handle.id);
+        resource_handle.is_valid = false;
     }
 }
