@@ -1,14 +1,14 @@
 use std::{collections::HashSet, ffi::CStr, hash::RandomState};
 
 use ash::{
+    Device, Instance,
     khr::surface::Instance as SurfaceInstance,
     vk::{
-        api_version_major, api_version_minor, DeviceCreateInfo, DeviceQueueCreateInfo, Fence,
-        FenceCreateFlags, FenceCreateInfo, Format, FormatFeatureFlags, ImageTiling,
-        MemoryPropertyFlags, PhysicalDevice, PhysicalDeviceFeatures, PhysicalDeviceProperties,
-        Queue, QueueFlags, SampleCountFlags, Semaphore, SemaphoreCreateInfo, SurfaceKHR, TRUE,
+        DeviceCreateInfo, DeviceQueueCreateInfo, Fence, FenceCreateFlags, FenceCreateInfo, Format,
+        FormatFeatureFlags, ImageTiling, MemoryPropertyFlags, PhysicalDevice,
+        PhysicalDeviceFeatures, PhysicalDeviceProperties, Queue, QueueFlags, SampleCountFlags,
+        Semaphore, SemaphoreCreateInfo, SurfaceKHR, TRUE, api_version_major, api_version_minor,
     },
-    Device, Instance,
 };
 
 use crate::vulkan::vulkan::MAX_FRAMES_IN_FLIGHT;
@@ -33,16 +33,12 @@ impl BigusDevice {
         surface: SurfaceKHR,
         surface_instance: SurfaceInstance,
     ) -> Self {
-        let physical_device = *unsafe {
-            instance
-                .enumerate_physical_devices()
-                .unwrap()
-                .iter()
-                .find(|device| {
-                    Self::is_device_suitable(instance, **device, &surface_instance, surface)
-                })
-                .expect("No physical devices found")
-        };
+        let physical_devices = unsafe { instance.enumerate_physical_devices().unwrap() };
+
+        let physical_device = *physical_devices
+            .iter()
+            .find(|device| Self::is_device_suitable(instance, **device, &surface_instance, surface))
+            .expect("No physical devices found");
 
         let physical_device_capabilities =
             unsafe { instance.get_physical_device_properties(physical_device) };
@@ -202,10 +198,10 @@ impl BigusDevice {
 
             match tiling {
                 ImageTiling::LINEAR if format_props.linear_tiling_features.contains(features) => {
-                    return candidate
+                    return candidate;
                 }
                 ImageTiling::OPTIMAL if format_props.optimal_tiling_features.contains(features) => {
-                    return candidate
+                    return candidate;
                 }
                 _ => (),
             };

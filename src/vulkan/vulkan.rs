@@ -27,7 +27,7 @@ use winit::{
 
 use crate::{
     ecs::{builtins::mesh::Mesh, ecs_runner::EcsRunner},
-    math::{graphics_ops::model_matrix, matrix::Matrix4, vector::Vector3},
+    math::{graphics_ops::model_matrix, vector::Vector3},
     resource_handling::{resource_handler::ResourceHandler, resources::mesh::Model},
     vulkan::{
         command_pool::create_render_pass,
@@ -65,7 +65,6 @@ pub struct VulkanRenderer {
     pub(super) surface_instance: SurfaceInstance,
     pub(super) surface: SurfaceKHR,
 
-    //pub mip_levels: u32,
     pub(super) color_image: Image,
     pub(super) color_image_view: ImageView,
     pub(super) color_image_memory: DeviceMemory,
@@ -85,7 +84,6 @@ pub struct VulkanRenderer {
 
     render_objects: Vec<RenderObject>,
 
-    //pub(super) start_time: Instant,
     pub(super) command_buffers: Vec<CommandBuffer>,
 
     pub x: f32,
@@ -108,14 +106,10 @@ impl VulkanRenderer {
             .unwrap();
 
         let entity = ecs.create_entity();
-        entity.add_component(
-            ecs,
-            Mesh {
-                indices: model.indices.clone(),
-                vertices: model.vertices.clone(),
-            },
-        );
-        let meshes = ecs.query::<Mesh>();
+        ecs.add_component(&entity, Mesh::from_model_resource(model));
+        let meshes = ecs.query::<(Mesh,)>();
+
+        
 
         for mesh in meshes {
             println!(

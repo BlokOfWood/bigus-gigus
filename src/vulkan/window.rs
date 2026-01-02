@@ -78,7 +78,7 @@ pub unsafe fn create_surface(
                         .get(),
                 );
             let surface_fn = win32_surface::Instance::new(entry, instance);
-            surface_fn.create_win32_surface(&surface_desc, allocation_callbacks)
+            unsafe { surface_fn.create_win32_surface(&surface_desc, allocation_callbacks) }
         }
 
         (RawDisplayHandle::Wayland(display), RawWindowHandle::Wayland(window)) => {
@@ -86,7 +86,7 @@ pub unsafe fn create_surface(
                 .display(display.display.as_ptr())
                 .surface(window.surface.as_ptr());
             let surface_fn = wayland_surface::Instance::new(entry, instance);
-            surface_fn.create_wayland_surface(&surface_desc, allocation_callbacks)
+            unsafe { surface_fn.create_wayland_surface(&surface_desc, allocation_callbacks) }
         }
 
         (RawDisplayHandle::Xlib(display), RawWindowHandle::Xlib(window)) => {
@@ -99,7 +99,7 @@ pub unsafe fn create_surface(
                 )
                 .window(window.window);
             let surface_fn = xlib_surface::Instance::new(entry, instance);
-            surface_fn.create_xlib_surface(&surface_desc, allocation_callbacks)
+            unsafe { surface_fn.create_xlib_surface(&surface_desc, allocation_callbacks) }
         }
 
         (RawDisplayHandle::Xcb(display), RawWindowHandle::Xcb(window)) => {
@@ -112,14 +112,14 @@ pub unsafe fn create_surface(
                 )
                 .window(window.window.get());
             let surface_fn = xcb_surface::Instance::new(entry, instance);
-            surface_fn.create_xcb_surface(&surface_desc, allocation_callbacks)
+            unsafe { surface_fn.create_xcb_surface(&surface_desc, allocation_callbacks) }
         }
 
         (RawDisplayHandle::Android(_), RawWindowHandle::AndroidNdk(window)) => {
             let surface_desc =
                 vk::AndroidSurfaceCreateInfoKHR::default().window(window.a_native_window.as_ptr());
             let surface_fn = android_surface::Instance::new(entry, instance);
-            surface_fn.create_android_surface(&surface_desc, allocation_callbacks)
+            unsafe { surface_fn.create_android_surface(&surface_desc, allocation_callbacks) }
         }
 
         #[cfg(target_os = "macos")]

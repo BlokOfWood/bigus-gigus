@@ -7,13 +7,13 @@ pub struct Vector3 {
     pub z: f32,
 }
 
-pub const VECTOR3_ZERO: Vector3 = Vector3 {
-    x: 0.0,
-    y: 0.0,
-    z: 0.0,
-};
-
 impl Vector3 {
+    pub const ZERO: Vector3 = Vector3 {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+
     pub fn new(x: f32, y: f32, z: f32) -> Vector3 {
         Vector3 { x, y, z }
     }
@@ -46,6 +46,12 @@ impl Vector3 {
 
     pub fn dot(&self, rhs: Vector3) -> f32 {
         return self.x * rhs.x + self.y * rhs.y + self.z * rhs.z;
+    }
+}
+
+impl Default for Vector3 {
+    fn default() -> Self {
+        Vector3::ZERO
     }
 }
 

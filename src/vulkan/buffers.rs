@@ -7,7 +7,7 @@ use ash::vk::{
 
 use crate::{
     math::{
-        graphics_ops::{look_at, perspective}, vector::{VECTOR3_ZERO, Vector3}
+        graphics_ops::{look_at, perspective}, vector::{Vector3}
     },
     vulkan::{
         device_and_queues::BigusDevice,
@@ -301,7 +301,7 @@ impl BigusDevice {
 impl VulkanRenderer {
     pub(super) fn update_uniform_buffer(&self, current_frame: usize, aspect_ratio: f32) {
         let view= look_at(
-            VECTOR3_ZERO,
+            Vector3::ZERO,
             Vector3::new(self.x, self.y, self.z),
         );
 

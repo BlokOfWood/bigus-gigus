@@ -1,7 +1,7 @@
 [package]
 name = "bigus-gigus"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 winit = { version = "*", features = ["rwh_05"] }
@@ -9,6 +9,7 @@ ahash = "*"
 image = { version = "0.25" }
 smallvec = "*"
 ash = {version = "0.38", features = ["debug","loaded","linked","std"]}
+component_derive = { path="../component_derive" }
 
 [profile.release]
 debug = 1

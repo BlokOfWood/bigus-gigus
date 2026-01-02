@@ -7,24 +7,6 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'bigus-gigus'",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=bigus-gigus",
-                    "--package=bigus-gigus"
-                ],
-                "filter": {
-                    "name": "bigus-gigus",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
             "name": "Debug unit tests in executable 'bigus-gigus'",
             "cargo": {
                 "args": [
