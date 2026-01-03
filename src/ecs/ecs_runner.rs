@@ -15,6 +15,7 @@ type EntityId = u32;
 type ComponentType = &'static str;
 type ComponentIndex = usize;
 type CallbackIndex = usize;
+type PendingCallback = dyn FnOnce(&mut VulkanRenderer) -> ();
 
 #[allow(unused)]
 pub struct EcsRunner {
@@ -25,14 +26,14 @@ pub struct EcsRunner {
     next_entity_id: EntityId,
 
     on_component_creation_callbacks: HashMap<ComponentType, Box<dyn Any>>,
-    pending_callbacks: Vec<(EventType, ComponentType, ComponentIndex, CallbackIndex)>,
+    pending_callbacks: Vec<Box<PendingCallback>>,
 
     entity_component_map: HashMap<EntityId, HashMap<ComponentType, ComponentIndex>>,
 
     component_type_id_mappings: HashMap<ComponentType, u8>,
 }
 
-type ComponentCallback<T> = fn(&T, *mut VulkanRenderer) -> ();
+type ComponentCallback<T> = fn(T, *mut VulkanRenderer) -> ();
 
 impl EcsRunner {
     pub fn new() -> Self {
@@ -100,7 +101,7 @@ impl EcsRunner {
         .downcast_mut::<Vec<T>>()
         .unwrap();
 
-        components_vec.push(component);
+        components_vec.push(component.clone());
 
         self.entity_component_map
             .entry(entity.id)
@@ -108,19 +109,25 @@ impl EcsRunner {
             .insert(T::get_type_fingerprint(), components_vec.len() - 1);
 
         if let Some(callbacks_box) = self.on_component_creation_callbacks.get(component_type) {
-            let callbacks_vec_len = callbacks_box
+            let callbacks_vec= callbacks_box
                 .downcast_ref::<Vec<ComponentCallback<T>>>()
-                .unwrap()
-                .len();
+                .unwrap();
 
-            for idx in 0..callbacks_vec_len {
-                self.pending_callbacks.push((
-                    EventType::OnComponentCreation,
-                    component_type,
-                    components_vec.len(),
-                    idx,
-                ));
+            for callback in callbacks_vec {
+                let c = component.clone();
+                let cb = callback.clone();
+                let pending_callback = move |renderer: &mut VulkanRenderer| {
+                    cb(c, renderer);
+                };
+                self.pending_callbacks.push(Box::new(pending_callback));
             }
+        }
+    }
+
+    pub fn resolve_events(&mut self, vulkan_renderer: &mut VulkanRenderer) {
+        while let Some(callback) = self.pending_callbacks.pop()
+        {
+            callback(vulkan_renderer);
         }
     }
 
