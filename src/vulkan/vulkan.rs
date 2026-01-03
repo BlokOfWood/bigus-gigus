@@ -7,15 +7,16 @@ use std::{
 };
 
 use ash::{
+    Entry, Instance,
     vk::{
         self, ApplicationInfo, Buffer, ClearColorValue, ClearDepthStencilValue, ClearValue,
-        CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, DescriptorSet,
-        DeviceMemory, Extent2D, Fence, Framebuffer, Image, ImageView, IndexType, Offset2D,
-        Pipeline, PipelineBindPoint, PipelineLayout, PipelineStageFlags, PresentInfoKHR, Rect2D,
-        RenderPass, RenderPassBeginInfo, Result, Semaphore, ShaderStageFlags, SubmitInfo,
-        SubpassContents, SurfaceKHR, SwapchainKHR, Viewport, KHR_SWAPCHAIN_NAME,
+        CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandPool, DescriptorSet,
+        DeviceMemory, Extent2D, Fence, Framebuffer, Image, ImageView, IndexType,
+        KHR_SWAPCHAIN_NAME, Offset2D, Pipeline, PipelineBindPoint, PipelineLayout,
+        PipelineStageFlags, PresentInfoKHR, Rect2D, RenderPass, RenderPassBeginInfo, Result,
+        Semaphore, ShaderStageFlags, SubmitInfo, SubpassContents, SurfaceKHR, SwapchainKHR,
+        Viewport,
     },
-    Entry, Instance,
 };
 use winit::{
     event::{ElementState, KeyEvent},
@@ -84,6 +85,7 @@ pub struct VulkanRenderer {
 
     render_objects: Vec<RenderObject>,
 
+    command_pool: CommandPool,
     pub(super) command_buffers: Vec<CommandBuffer>,
 
     pub x: f32,
@@ -98,6 +100,17 @@ impl VulkanRenderer {
         resource_handler: &mut ResourceHandler,
         ecs: &mut EcsRunner,
     ) -> Self {
+        ecs.add_on_component_creation_event::<Mesh>(|component, renderer| {
+            renderer
+                .render_objects
+                .push(renderer.device.create_render_object(
+                    Vector3::ZERO,
+                    &component.vertices,
+                    &component.indices,
+                    &renderer.command_pool,
+                ));
+        });
+
         let room_model_handle = resource_handler
             .load_resource("assets/models/viking_room.obj")
             .unwrap();
@@ -107,17 +120,6 @@ impl VulkanRenderer {
 
         let entity = ecs.create_entity();
         ecs.add_component(&entity, Mesh::from_model_resource(model));
-        let meshes = ecs.query::<(Mesh,)>();
-
-        
-
-        for mesh in meshes {
-            println!(
-                "Mesh - Vertices: {}, Indices: {}",
-                mesh.vertices.len(),
-                mesh.indices.len()
-            );
-        }
 
         let entry = Entry::linked();
 
@@ -301,7 +303,7 @@ impl VulkanRenderer {
             depth_image_memory,
             depth_image_view,
 
-            render_objects,
+            render_objects: Vec::new(),
 
             framebuffers,
             swapchain_image_views: image_views,
@@ -313,6 +315,7 @@ impl VulkanRenderer {
             _uniform_buffers: uniform_buffers,
             uniform_buffers_mapped,
             //start_time: Instant::now(),
+            command_pool,
             command_buffers,
             x: -2.0,
             y: -2.0,

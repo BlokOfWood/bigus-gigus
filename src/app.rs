@@ -68,7 +68,8 @@ impl ApplicationHandler for App {
 
         if self.vk_renderer.is_none() {
             // Initalizes the vulkan renderer with a reference to the window and event loop
-            let vk_renderer = VulkanRenderer::new(window, event_loop, &mut self.resource_handler, &mut self.ecs_runner);
+            let mut vk_renderer = VulkanRenderer::new(window, event_loop, &mut self.resource_handler, &mut self.ecs_runner);
+            self.ecs_runner.resolve_events(&mut vk_renderer);
             self.vk_renderer = Some(vk_renderer);
         }
     }

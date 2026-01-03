@@ -33,7 +33,7 @@ pub struct EcsRunner {
     component_type_id_mappings: HashMap<ComponentType, u8>,
 }
 
-type ComponentCallback<T> = fn(T, *mut VulkanRenderer) -> ();
+type ComponentCallback<T> = fn(T, &mut VulkanRenderer) -> ();
 
 impl EcsRunner {
     pub fn new() -> Self {
