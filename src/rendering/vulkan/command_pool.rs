@@ -6,9 +6,7 @@ use ash::vk::{
     SampleCountFlags, SubmitInfo, SubpassDependency, SubpassDescription, SUBPASS_EXTERNAL,
 };
 
-use crate::vulkan::vulkan::MAX_FRAMES_IN_FLIGHT;
-
-use super::device_and_queues::{BigusDevice, QueueFamilyIndices};
+use super::{MAX_FRAMES_IN_FLIGHT, device_and_queues::{BigusDevice, QueueFamilyIndices}};
 
 impl BigusDevice {
     pub(super) fn create_command_pool(

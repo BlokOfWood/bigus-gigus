@@ -20,29 +20,37 @@ use ash::{
 };
 use winit::{
     event::{ElementState, KeyEvent},
-    event_loop::ActiveEventLoop,
     keyboard::Key,
     raw_window_handle::HasDisplayHandle,
     window::Window,
 };
 
 use crate::{
-    ecs::{builtins::mesh::Mesh, ecs_runner::EcsRunner},
-    math::{graphics_ops::model_matrix, vector::Vector3},
-    resource_handling::{resource_handler::ResourceHandler, resources::mesh::Model},
-    vulkan::{
+    math::{graphics_ops::model_matrix, vector::Vector3}, rendering::vulkan::{
         command_pool::create_render_pass,
         device_and_queues::QueueFamilyIndices,
         pipeline::{create_descriptor_set_layout, create_graphics_pipeline},
         push_constants::PushConstant,
         render_object::RenderObject,
         window::{create_surface, enumerate_required_extensions},
-    },
+    }, resource_handler::resources::mesh::Model
 };
 
 use ash::khr::surface::Instance as SurfaceInstance;
 
-use crate::vulkan::device_and_queues::BigusDevice;
+use self::device_and_queues::BigusDevice;
+
+pub mod buffers;
+pub mod command_pool;
+pub mod device_and_queues;
+pub mod image;
+pub mod pipeline;
+pub mod push_constants;
+pub mod render_object;
+pub mod shader;
+pub mod swap_chain;
+pub mod ubo;
+pub mod window;
 
 const ENGINE_NAME: &str = "Very cool engine";
 const APPLICATION_NAME: &str = "Very cool application";
@@ -96,11 +104,9 @@ pub struct VulkanRenderer {
 impl VulkanRenderer {
     pub fn new(
         window: Arc<Window>,
-        event_loop: &ActiveEventLoop,
-        resource_handler: &mut ResourceHandler,
-        ecs: &mut EcsRunner,
+        model: &Model,
     ) -> Self {
-        ecs.add_on_component_creation_event::<Mesh>(|component, renderer| {
+        /*ecs.add_on_component_creation_event::<Mesh>(|component, renderer| {
             renderer
                 .render_objects
                 .push(renderer.device.create_render_object(
@@ -109,17 +115,8 @@ impl VulkanRenderer {
                     &component.indices,
                     &renderer.command_pool,
                 ));
-        });
+        });*/
 
-        let room_model_handle = resource_handler
-            .load_resource("assets/models/viking_room.obj")
-            .unwrap();
-        let model: &Model = resource_handler
-            .retrieve_resource(&room_model_handle)
-            .unwrap();
-
-        let entity = ecs.create_entity();
-        ecs.add_component(&entity, Mesh::from_model_resource(model));
 
         let entry = Entry::linked();
 
@@ -147,7 +144,7 @@ impl VulkanRenderer {
         };
 
         let window_required_extensions =
-            enumerate_required_extensions(event_loop.display_handle().unwrap().into())
+            enumerate_required_extensions(window.display_handle().unwrap().into())
                 .expect("Failed to enumerate required extensions.");
 
         let mut enabled_extensions = Vec::new();

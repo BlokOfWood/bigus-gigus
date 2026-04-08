@@ -1,8 +1,8 @@
 use component_derive::Component;
 
 use crate::ecs::component::Component;
-use crate::resource_handling::resources::mesh::Model;
-use crate::vulkan::buffers::Vertex;
+use crate::resource_handler::resources::mesh::Model;
+use crate::rendering::vulkan::buffers::Vertex;
 
 #[derive(Component, Clone)]
 pub struct Mesh {

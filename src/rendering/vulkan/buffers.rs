@@ -5,15 +5,15 @@ use ash::vk::{
     VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate,
 };
 
-use crate::{
-    math::{
-        graphics_ops::{look_at, perspective}, vector::{Vector3}
-    },
-    vulkan::{
-        device_and_queues::BigusDevice,
-        ubo::UniformBufferObject,
-        vulkan::{MAX_FRAMES_IN_FLIGHT, VulkanRenderer},
-    },
+use crate::math::{
+    graphics_ops::{look_at, perspective},
+    vector::Vector3,
+};
+
+use super::{
+    device_and_queues::BigusDevice,
+    ubo::UniformBufferObject,
+    {MAX_FRAMES_IN_FLIGHT, VulkanRenderer},
 };
 
 use std::{mem::offset_of, os::raw::c_void};
@@ -204,7 +204,7 @@ impl BigusDevice {
 
     pub(crate) fn create_vertex_buffer(
         &self,
-        vertex_array: &[Vertex], 
+        vertex_array: &[Vertex],
         command_pool: &CommandPool,
     ) -> (Buffer, DeviceMemory) {
         let buffer_size = (size_of::<Vertex>() * vertex_array.len()) as u64;
@@ -233,7 +233,11 @@ impl BigusDevice {
         (vertex_buffer, vertex_buffer_memory)
     }
 
-    pub(crate) fn create_index_buffer(&self, index_array: &[u32], command_pool: &CommandPool) -> (Buffer, DeviceMemory) {
+    pub(crate) fn create_index_buffer(
+        &self,
+        index_array: &[u32],
+        command_pool: &CommandPool,
+    ) -> (Buffer, DeviceMemory) {
         let buffer_size = (size_of::<u32>() * index_array.len()) as u64;
 
         let (staging_buffer, staging_buffer_memory) = self.create_buffer(
@@ -300,10 +304,7 @@ impl BigusDevice {
 
 impl VulkanRenderer {
     pub(super) fn update_uniform_buffer(&self, current_frame: usize, aspect_ratio: f32) {
-        let view= look_at(
-            Vector3::ZERO,
-            Vector3::new(self.x, self.y, self.z),
-        );
+        let view = look_at(Vector3::ZERO, Vector3::new(self.x, self.y, self.z));
 
         let uniform_buffer_new_contents = UniformBufferObject {
             view,

@@ -15,8 +15,8 @@ use ash::vk::{
     Sampler, ShaderStageFlags, WriteDescriptorSet, FALSE, TRUE,
 };
 
-use crate::vulkan::{
-    push_constants::PushConstant, ubo::UniformBufferObject, vulkan::MAX_FRAMES_IN_FLIGHT,
+use super::{
+    push_constants::PushConstant, ubo::UniformBufferObject, MAX_FRAMES_IN_FLIGHT,
 };
 
 use super::{buffers::VertexBuffer, device_and_queues::BigusDevice, shader::Shaders};

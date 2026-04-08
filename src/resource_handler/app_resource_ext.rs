@@ -1,4 +1,4 @@
-use crate::{app::App, resource_handling::{loadable::LoadableResource, resource::Resource, resource_errors::{ResourceLoadError, ResourceReferenceError}, resource_handle::ResourceHandle}};
+use crate::{app::App, resource_handler::{loadable::LoadableResource, resource::Resource, resource_errors::{ResourceLoadError, ResourceReferenceError}, resource_handle::ResourceHandle}};
 
 impl App {
     pub fn retrieve_resource<T: Resource + 'static>(

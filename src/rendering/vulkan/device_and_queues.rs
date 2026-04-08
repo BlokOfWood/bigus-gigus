@@ -11,9 +11,8 @@ use ash::{
     },
 };
 
-use crate::vulkan::vulkan::MAX_FRAMES_IN_FLIGHT;
 
-use super::{swap_chain::SwapChainSupport, vulkan::REQUIRED_EXTENSIONS};
+use super::{MAX_FRAMES_IN_FLIGHT, REQUIRED_EXTENSIONS, swap_chain::SwapChainSupport};
 
 #[derive(Clone)]
 pub struct BigusDevice {

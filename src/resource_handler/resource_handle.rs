@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::resource_handling::resource::Resource;
+use crate::resource_handler::resource::Resource;
 
 pub struct ResourceHandle<T: Resource> {
     pub(super) id: u32,

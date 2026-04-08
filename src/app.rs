@@ -1,3 +1,4 @@
+use crate::{ecs::{World, plugin::Plugin, singleton_handler::SingletonHandler}, event::{event_handler::EventHandler, redraw_requested_event::RedrawRequestedEvent, resized_event::ResizedEvent}, plugin_handler::PluginHandler, rendering::RenderPlugin, resource_handler::ResourceHandler}; 
 use std::sync::Arc;
 
 use winit::{
@@ -8,21 +9,18 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::{ecs::ecs_runner::EcsRunner, resource_handling::resource_handler::ResourceHandler, vulkan::vulkan::VulkanRenderer};
+pub struct App {
+    world: World,
+    pub resource_handler: ResourceHandler,
+    pub singleton_handler: SingletonHandler,
+    pub event_handler: EventHandler,
+    pub plugin_handler: PluginHandler,
+    event_loop: Option<EventLoop<()>>,
+    window: Option<Arc<Window>>
+}
 
 const DEFAULT_WINDOW_WIDTH: u16 = 800;
 const DEFAULT_WINDOW_HEIGHT: u16 = 600;
-
-pub struct App {
-    /// The winit window event loop
-    event_loop: Option<EventLoop<()>>,
-    /// The window that the application will be running in
-    pub window: Option<Arc<Window>>,
-    /// The vulkan renderer that will be used to render the application
-    vk_renderer: Option<VulkanRenderer>,
-    pub resource_handler: ResourceHandler,
-    pub ecs_runner: EcsRunner,
-}
 
 impl App {
     /// Create a new instance of the App struct
@@ -30,14 +28,14 @@ impl App {
         let event_loop = EventLoop::new().unwrap();
         event_loop.set_control_flow(ControlFlow::Poll);
 
-        let ecs_runner = EcsRunner::new();
-
         App {
-            window: None,
+            world: World::new(),
             event_loop: Some(event_loop),
-            vk_renderer: None,
-            ecs_runner,
+            singleton_handler: SingletonHandler::new(),
             resource_handler: ResourceHandler::new(),
+            event_handler: EventHandler::new(),
+            plugin_handler: PluginHandler::new(),
+            window: None,
         }
     }
 
@@ -62,16 +60,16 @@ impl ApplicationHandler for App {
                 DEFAULT_WINDOW_WIDTH,
                 DEFAULT_WINDOW_HEIGHT,
             ));
-            
-        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
-        self.window = Some(window.clone());
 
-        if self.vk_renderer.is_none() {
-            // Initalizes the vulkan renderer with a reference to the window and event loop
-            let mut vk_renderer = VulkanRenderer::new(window, event_loop, &mut self.resource_handler, &mut self.ecs_runner);
-            self.ecs_runner.resolve_events(&mut vk_renderer);
-            self.vk_renderer = Some(vk_renderer);
-        }
+        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+
+        self.singleton_handler.add_or_replace_singleton(window.clone());
+
+        self.window = Some(window);
+
+        let render_plugin = RenderPlugin::new(self);
+
+        self.plugin_handler.add_plugin(render_plugin);
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -81,25 +79,23 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                if let Some(vk_renderer) = &mut self.vk_renderer {
-                    vk_renderer.draw_frame();
-                };
+                self.event_handler.raise_event(RedrawRequestedEvent {});
+                self.event_handler.resolve_events();
                 self.window.as_ref().unwrap().request_redraw();
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                if let Some(vk_renderer) = &mut self.vk_renderer {
+                /*if let Some(vk_renderer) = &mut self.vk_renderer {
                     vk_renderer.process_key_event(event);
                     vk_renderer.draw_frame();
-                };
+                };*/
             }
             WindowEvent::Resized(new_size) => {
                 if new_size.width == 0 || new_size.height == 0 {
                     return;
                 }
 
-                if let Some(vk_renderer) = &mut self.vk_renderer {
-                    vk_renderer.recreate_swap_chain();
-                };
+                self.event_handler.raise_event(ResizedEvent);
+                self.event_handler.resolve_events();
             }
             _ => (),
         }

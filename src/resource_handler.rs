@@ -1,11 +1,18 @@
 use ahash::{HashMap, HashMapExt};
 
-use crate::resource_handling::{
+use crate::resource_handler::{
     loadable::LoadableResource,
     resource::Resource,
     resource_errors::{ResourceLoadError, ResourceReferenceError},
     resource_handle::ResourceHandle,
 };
+
+pub mod app_resource_ext;
+mod loadable;
+pub mod resource;
+pub mod resource_errors;
+pub mod resource_handle;
+pub mod resources;
 
 /**
    The resource handler has the following goals:

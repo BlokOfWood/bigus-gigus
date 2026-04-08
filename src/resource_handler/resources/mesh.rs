@@ -1,10 +1,10 @@
 use std::{any::Any, path::Path};
 
 use crate::{
-    resource_handling::{
+    resource_handler::{
         loadable::LoadableResource, resource::Resource, resource_errors::ResourceLoadError, resources::mesh::obj_loader::load_obj,
     },
-    vulkan::buffers::Vertex,
+    rendering::vulkan::buffers::Vertex,
 };
 
 mod obj_loader;

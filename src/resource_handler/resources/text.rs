@@ -1,6 +1,6 @@
 use std::fs::read_to_string;
 
-use crate::resource_handling::{loadable::LoadableResource, resource::Resource, resource_errors::ResourceLoadError};
+use crate::resource_handler::{loadable::LoadableResource, resource::Resource, resource_errors::ResourceLoadError};
 
 pub struct TextResource {
    pub text: String 

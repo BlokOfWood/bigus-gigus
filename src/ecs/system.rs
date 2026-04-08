@@ -1,13 +1,5 @@
-#[allow(unused)]
-pub struct System {
-    id: u32,
-    tick_function: TickFunction,
-}
+use crate::ecs::Query;
 
-pub type TickFunction = fn() -> ();
-
-impl System {
-    pub fn tick(&self) {
-        (self.tick_function)();
-    }
+pub trait System<T: Query> {
+    fn tick(query: T) -> ();
 }

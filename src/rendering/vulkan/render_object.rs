@@ -1,6 +1,7 @@
 use ash::vk::{Buffer, CommandPool};
 
-use crate::{math::vector::Vector3, vulkan::{buffers::Vertex, device_and_queues::BigusDevice}};
+use super::{buffers::Vertex, device_and_queues::BigusDevice};
+use crate::math::vector::Vector3;
 
 pub struct RenderObject {
     pub(super) position: Vector3,
@@ -10,13 +11,24 @@ pub struct RenderObject {
 }
 
 impl BigusDevice {
-    pub(super) fn create_render_object(&self, position: Vector3, vertices: &[Vertex], indices: &[u32], command_pool: &CommandPool) -> RenderObject {
+    pub(super) fn create_render_object(
+        &self,
+        position: Vector3,
+        vertices: &[Vertex],
+        indices: &[u32],
+        command_pool: &CommandPool,
+    ) -> RenderObject {
         let (vertex_buffer, _vertex_buffer_memory) =
             self.create_vertex_buffer(&vertices, &command_pool);
 
         let (index_buffer, _index_buffer_memory) =
             self.create_index_buffer(&indices, &command_pool);
 
-        RenderObject { position, vertex_buffer, index_buffer, index_count: indices.len() as u32 }
+        RenderObject {
+            position,
+            vertex_buffer,
+            index_buffer,
+            index_count: indices.len() as u32,
+        }
     }
 }

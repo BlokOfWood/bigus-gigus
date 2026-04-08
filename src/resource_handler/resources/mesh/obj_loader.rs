@@ -6,7 +6,7 @@ use std::{
 
 use ahash::{HashMap, HashMapExt};
 
-use crate::{resource_handling::resources::mesh::Model, vulkan::buffers::Vertex};
+use crate::{rendering::vulkan::buffers::Vertex, resource_handler::resources::mesh::Model};
 
 fn parse_face_vertex(s: &str) -> [usize; 2] {
     let mut parts = s.split('/');

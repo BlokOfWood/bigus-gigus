@@ -6,10 +6,11 @@ use ash::vk::{
     TRUE,
 };
 
-use crate::vulkan::vulkan::{VulkanRenderer, MAX_FRAMES_IN_FLIGHT};
-use crate::vulkan::window::create_surface;
-
-use super::device_and_queues::{BigusDevice, QueueFamilyIndices};
+use super::{
+    MAX_FRAMES_IN_FLIGHT, VulkanRenderer,
+    device_and_queues::{BigusDevice, QueueFamilyIndices},
+    window::create_surface,
+};
 
 pub struct SwapChainSupport {
     pub capabilities: SurfaceCapabilitiesKHR,
@@ -162,7 +163,11 @@ impl BigusDevice {
         let mut frame_buffers = Vec::new();
 
         for i in 0..swap_chain_image_views.len() {
-            let attachments = [color_image_view, depth_image_view, swap_chain_image_views[i]];
+            let attachments = [
+                color_image_view,
+                depth_image_view,
+                swap_chain_image_views[i],
+            ];
 
             let frame_buffer = unsafe {
                 self.dev.create_framebuffer(
@@ -208,13 +213,15 @@ impl VulkanRenderer {
         );
         self.swapchain = swapchain;
 
-        let image_views =
-            self.device
-                .create_image_views(images, image_format.format, 1);
-
-        let (color_image, color_image_view, color_image_memory) = self
+        let image_views = self
             .device
-            .create_color_resources([image_extent.width, image_extent.height], image_format.format);
+            .create_image_views(images, image_format.format, 1);
+
+        let (color_image, color_image_view, color_image_memory) =
+            self.device.create_color_resources(
+                [image_extent.width, image_extent.height],
+                image_format.format,
+            );
         self.color_image = color_image;
         self.color_image_view = color_image_view;
         self.color_image_memory = color_image_memory;

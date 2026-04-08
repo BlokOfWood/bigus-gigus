@@ -2,26 +2,32 @@ use std::any::Any;
 
 use ahash::{HashMap, HashMapExt};
 
-use crate::{
-    ecs::{component::Component, entity::Entity, system::System},
-    vulkan::vulkan::VulkanRenderer,
-};
+use crate::ecs::{component::Component, entity::Entity};
 
 pub enum EventType {
     OnComponentCreation,
 }
 
+pub mod bit_set;
+pub mod builtins;
+pub mod component;
+pub mod entity;
+pub mod plugin;
+pub mod singleton_handler;
+pub mod system;
+
 type EntityId = u32;
 type ComponentType = &'static str;
 type ComponentIndex = usize;
 type CallbackIndex = usize;
-type PendingCallback = dyn FnOnce(&mut VulkanRenderer) -> ();
+type PendingCallback = dyn FnOnce(/*&mut VulkanRenderer*/) -> ();
 
 #[allow(unused)]
-pub struct EcsRunner {
+pub struct World {
     entities: Vec<Entity>,
     components: HashMap<ComponentType, Box<dyn Any>>,
-    systems: Vec<System>,
+    // TODO: some sort of query type fingerprint like with the components
+    systems: Vec<Box<dyn FnMut(&mut World)>>, // Box hides Vec<System<T: Query>>
 
     next_entity_id: EntityId,
 
@@ -33,11 +39,11 @@ pub struct EcsRunner {
     component_type_id_mappings: HashMap<ComponentType, u8>,
 }
 
-type ComponentCallback<T> = fn(T, &mut VulkanRenderer) -> ();
+type ComponentCallback<T> = fn(T /* , &mut VulkanRenderer*/) -> ();
 
-impl EcsRunner {
+impl World {
     pub fn new() -> Self {
-        EcsRunner {
+        World {
             entities: Vec::new(),
             components: HashMap::new(),
             systems: Vec::new(),
@@ -108,33 +114,51 @@ impl EcsRunner {
             .or_insert(HashMap::new())
             .insert(T::get_type_fingerprint(), components_vec.len() - 1);
 
-        if let Some(callbacks_box) = self.on_component_creation_callbacks.get(component_type) {
-            let callbacks_vec= callbacks_box
+        if let Some(callbacks_box) = self.on_component_creation_callbacks.get(&component_type) {
+            let callbacks_vec = callbacks_box
                 .downcast_ref::<Vec<ComponentCallback<T>>>()
                 .unwrap();
 
             for callback in callbacks_vec {
                 let c = component.clone();
-                let cb = callback.clone();
+                /*    let cb = callback.clone();
                 let pending_callback = move |renderer: &mut VulkanRenderer| {
                     cb(c, renderer);
                 };
-                self.pending_callbacks.push(Box::new(pending_callback));
+                self.pending_callbacks.push(Box::new(pending_callback));*/
             }
         }
     }
 
-    pub fn resolve_events(&mut self, vulkan_renderer: &mut VulkanRenderer) {
-        while let Some(callback) = self.pending_callbacks.pop()
-        {
-            callback(vulkan_renderer);
+    pub fn add_system<T: Query, U: FnMut(<T as Query>::Output) + 'static>(
+        &mut self,
+        mut system: U,
+    ) {
+        let system_runner = move |ecs: &mut World| {
+            for result in ecs.query::<T>() {
+                system(result)
+            }
+        };
+
+        let new_system = Box::new(system_runner);
+
+        self.systems.push(new_system);
+    }
+
+    pub fn resolve_events(&mut self /* , vulkan_renderer: &mut VulkanRenderer*/) {
+        while let Some(callback) = self.pending_callbacks.pop() {
+            callback();
         }
     }
 
-    pub fn tick(&self) {
-        for system in &self.systems {
-            system.tick();
+    pub fn tick(&mut self) {
+        let mut systems = std::mem::take(&mut self.systems);
+
+        for system in &mut systems {
+            system(self);
         }
+
+        self.systems = systems;
     }
 
     pub fn query<Q: Query>(&self) -> Vec<Q::Output> {
@@ -144,13 +168,14 @@ impl EcsRunner {
 
 pub trait Query {
     type Output;
-    fn query(ecs_runner: &EcsRunner) -> Vec<Self::Output>;
+    fn query(ecs_runner: &World) -> Vec<Self::Output>;
+    fn get_query_fingerprint() -> String;
 }
 
 impl<T: Component + 'static> Query for (T,) {
     type Output = T;
 
-    fn query(ecs_runner: &EcsRunner) -> Vec<Self::Output> {
+    fn query(ecs_runner: &World) -> Vec<Self::Output> {
         let components_vec = ecs_runner
             .components
             .get(T::get_type_fingerprint())
@@ -168,12 +193,16 @@ impl<T: Component + 'static> Query for (T,) {
 
         output_vec
     }
+
+    fn get_query_fingerprint() -> String {
+        T::get_type_fingerprint().to_owned()
+    }
 }
 
 impl<T1: Component + 'static, T2: Component + 'static> Query for (T1, T2) {
     type Output = (T1, T2);
 
-    fn query(ecs_runner: &EcsRunner) -> Vec<Self::Output> {
+    fn query(ecs_runner: &World) -> Vec<Self::Output> {
         let components_vec_1 = ecs_runner
             .components
             .get(T1::get_type_fingerprint())
@@ -203,6 +232,13 @@ impl<T1: Component + 'static, T2: Component + 'static> Query for (T1, T2) {
 
         output_vec
     }
+
+    fn get_query_fingerprint() -> String {
+        let fingerprint =
+            T1::get_type_fingerprint().to_string() + "|" + &T2::get_type_fingerprint();
+
+        fingerprint
+    }
 }
 
 #[cfg(test)]
@@ -211,8 +247,8 @@ mod tests {
 
     use super::*;
 
-    fn setup_ecs() -> EcsRunner {
-        let mut ecs = EcsRunner::new();
+    fn setup_ecs() -> World {
+        let mut ecs = World::new();
 
         let entity1 = ecs.create_entity();
         let entity2 = ecs.create_entity();
