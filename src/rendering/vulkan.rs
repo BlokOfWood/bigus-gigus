@@ -106,15 +106,7 @@ impl VulkanRenderer {
         window: Arc<Window>,
         model: &Model,
     ) -> Self {
-        /*ecs.add_on_component_creation_event::<Mesh>(|component, renderer| {
-            renderer
-                .render_objects
-                .push(renderer.device.create_render_object(
-                    Vector3::ZERO,
-                    &component.vertices,
-                    &component.indices,
-                    &renderer.command_pool,
-                ));
+        /*
         });*/
 
 

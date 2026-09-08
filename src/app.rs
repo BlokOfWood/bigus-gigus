@@ -1,4 +1,4 @@
-use crate::{ecs::{World, plugin::Plugin, singleton_handler::SingletonHandler}, event::{event_handler::EventHandler, redraw_requested_event::RedrawRequestedEvent, resized_event::ResizedEvent}, plugin_handler::PluginHandler, rendering::RenderPlugin, resource_handler::ResourceHandler}; 
+use crate::{ecs::{plugin::Plugin, singleton_handler::SingletonHandler}, event::{event_handler::EventHandler, redraw_requested_event::RedrawRequestedEvent, resized_event::ResizedEvent}, plugin_handler::PluginHandler, rendering::RenderPlugin, resource_handler::ResourceHandler}; 
 use std::sync::Arc;
 
 use winit::{
@@ -10,7 +10,6 @@ use winit::{
 };
 
 pub struct App {
-    world: World,
     pub resource_handler: ResourceHandler,
     pub singleton_handler: SingletonHandler,
     pub event_handler: EventHandler,
@@ -29,7 +28,6 @@ impl App {
         event_loop.set_control_flow(ControlFlow::Poll);
 
         App {
-            world: World::new(),
             event_loop: Some(event_loop),
             singleton_handler: SingletonHandler::new(),
             resource_handler: ResourceHandler::new(),

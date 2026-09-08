@@ -3,10 +3,7 @@ use std::sync::{Arc, Mutex};
 use winit::window::Window;
 
 use crate::{
-    app::App,
-    ecs::plugin::Plugin,
-    event::{redraw_requested_event::RedrawRequestedEvent, resized_event::ResizedEvent},
-    resource_handler::resources::mesh::Model,
+    app::App, ecs::{plugin::Plugin}, event::{redraw_requested_event::RedrawRequestedEvent, resized_event::ResizedEvent}, math::vector::Vector3, resource_handler::resources::mesh::Model
 };
 
 use self::vulkan::VulkanRenderer;
@@ -44,10 +41,20 @@ impl Plugin for RenderPlugin {
             vk_for_resize.lock().unwrap().recreate_swap_chain();
         });
 
+        /*app.world
+            .add_on_component_creation_event::<Mesh>(|component, renderer| {
+                renderer
+                    .render_objects
+                    .push(renderer.device.create_render_object(
+                        Vector3::ZERO,
+                        &component.vertices,
+                        &component.indices,
+                        &renderer.command_pool,
+                    ))
+            });
+*/
         // Move Window into some sort of singleton map
-        RenderPlugin {
-            vk,
-        }
+        RenderPlugin { vk }
     }
 
     fn tick(&self) {

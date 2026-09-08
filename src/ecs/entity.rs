@@ -1,4 +1,7 @@
+pub(super) type EntityId = u64;
+
 #[derive(Clone, Copy)]
 pub struct Entity {
-    pub(crate) id: u32,
+    pub(crate) id: EntityId,
 }
+
