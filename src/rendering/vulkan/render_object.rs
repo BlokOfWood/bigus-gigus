@@ -11,7 +11,7 @@ pub struct RenderObject {
 }
 
 impl BigusDevice {
-    pub(super) fn create_render_object(
+    pub(crate) fn create_render_object(
         &self,
         position: Vector3,
         vertices: &[Vertex],

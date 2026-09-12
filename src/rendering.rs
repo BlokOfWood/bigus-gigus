@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use winit::window::Window;
 
 use crate::{
-    app::App, ecs::{plugin::Plugin}, event::{redraw_requested_event::RedrawRequestedEvent, resized_event::ResizedEvent}, math::vector::Vector3, resource_handler::resources::mesh::Model
+    app::{App, RedrawRequestedEvent, ResizedEvent}, ecs::{builtins::mesh::Mesh, events::ComponentAddedEvent, plugin::Plugin}, math::vector::Vector3, resource_handler::resources::mesh::Model
 };
 
 use self::vulkan::VulkanRenderer;
@@ -31,28 +31,28 @@ impl Plugin for RenderPlugin {
         let vk = Arc::new(Mutex::new(VulkanRenderer::new(window, model)));
 
         let vk_for_redraw = vk.clone();
-        app.event_handler
-            .add_callback::<RedrawRequestedEvent, _>(move |_| {
-                vk_for_redraw.lock().unwrap().draw_frame();
-            });
+
+        let mut event_handler = app.event_handler.borrow_mut();
+        event_handler.add_handler::<RedrawRequestedEvent, _>(move |_| {
+            vk_for_redraw.lock().unwrap().draw_frame();
+        });
 
         let vk_for_resize = vk.clone();
-        app.event_handler.add_callback::<ResizedEvent, _>(move |_| {
+        event_handler.add_handler::<ResizedEvent, _>(move |_| {
             vk_for_resize.lock().unwrap().recreate_swap_chain();
         });
 
-        /*app.world
-            .add_on_component_creation_event::<Mesh>(|component, renderer| {
-                renderer
-                    .render_objects
-                    .push(renderer.device.create_render_object(
-                        Vector3::ZERO,
-                        &component.vertices,
-                        &component.indices,
-                        &renderer.command_pool,
-                    ))
-            });
-*/
+        let vk_for_add_component = vk.clone();
+
+        event_handler.add_handler::<ComponentAddedEvent<Mesh>, _>(move |event| {
+            let mut vk = vk_for_add_component.lock().unwrap();
+            let mesh = &event.component;
+
+            let new_render_object = vk.device.create_render_object(Vector3::ZERO, &mesh.vertices, &mesh.indices, &vk.command_pool);
+
+            vk.render_objects.push(new_render_object);
+        });
+
         // Move Window into some sort of singleton map
         RenderPlugin { vk }
     }

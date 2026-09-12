@@ -91,9 +91,9 @@ pub struct VulkanRenderer {
     image_available_semaphores: Vec<Semaphore>,
     render_finished_semaphores: Vec<Semaphore>,
 
-    render_objects: Vec<RenderObject>,
+    pub(crate) render_objects: Vec<RenderObject>,
 
-    command_pool: CommandPool,
+    pub(crate) command_pool: CommandPool,
     pub(super) command_buffers: Vec<CommandBuffer>,
 
     pub x: f32,

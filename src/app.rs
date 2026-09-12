@@ -1,5 +1,5 @@
-use crate::{ecs::{plugin::Plugin, singleton_handler::SingletonHandler}, event::{event_handler::EventHandler, redraw_requested_event::RedrawRequestedEvent, resized_event::ResizedEvent}, plugin_handler::PluginHandler, rendering::RenderPlugin, resource_handler::ResourceHandler}; 
-use std::sync::Arc;
+use crate::{ecs::{plugin::Plugin, singleton_handler::SingletonHandler, world::World}, event::event_handler::EventHandler, plugin_handler::PluginHandler, rendering::RenderPlugin, resource_handler::ResourceHandler}; 
+use std::{cell::RefCell, sync::Arc};
 
 use winit::{
     application::ApplicationHandler,
@@ -12,8 +12,9 @@ use winit::{
 pub struct App {
     pub resource_handler: ResourceHandler,
     pub singleton_handler: SingletonHandler,
-    pub event_handler: EventHandler,
+    pub event_handler: Arc<RefCell<EventHandler>>,
     pub plugin_handler: PluginHandler,
+    pub world: World,
     event_loop: Option<EventLoop<()>>,
     window: Option<Arc<Window>>
 }
@@ -27,12 +28,16 @@ impl App {
         let event_loop = EventLoop::new().unwrap();
         event_loop.set_control_flow(ControlFlow::Poll);
 
+        let event_handler = Arc::new(RefCell::new(EventHandler::new()));
+        let world = World::new(event_handler.clone());
+
         App {
             event_loop: Some(event_loop),
             singleton_handler: SingletonHandler::new(),
             resource_handler: ResourceHandler::new(),
-            event_handler: EventHandler::new(),
+            event_handler,
             plugin_handler: PluginHandler::new(),
+            world,
             window: None,
         }
     }
@@ -48,7 +53,7 @@ impl App {
     }
 }
 
-impl ApplicationHandler for App {
+impl<'a> ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attributes = Window::default_attributes()
             .with_title("Bigus Gigus")
@@ -77,8 +82,10 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                self.event_handler.raise_event(RedrawRequestedEvent {});
-                self.event_handler.resolve_events();
+                let mut event_handler = self.event_handler.borrow_mut();
+                event_handler.raise_event(RedrawRequestedEvent {});
+                event_handler.resolve_events();
+
                 self.window.as_ref().unwrap().request_redraw();
             }
             WindowEvent::KeyboardInput { event, .. } => {
@@ -92,10 +99,15 @@ impl ApplicationHandler for App {
                     return;
                 }
 
-                self.event_handler.raise_event(ResizedEvent);
-                self.event_handler.resolve_events();
+                let mut event_handler = self.event_handler.borrow_mut();
+
+                event_handler.raise_event(ResizedEvent);
+                event_handler.resolve_events();
             }
             _ => (),
         }
     }
 }
+
+pub struct RedrawRequestedEvent;
+pub struct ResizedEvent;
