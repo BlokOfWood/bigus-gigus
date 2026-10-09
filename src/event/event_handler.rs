@@ -33,8 +33,9 @@ impl EventHandler {
     }
 
     pub(crate) fn resolve_events(&mut self) {
+        println!("resolving {} event", self.pending_events.len());
         for event in &mut self.pending_events {
-            for handler in &self.handlers[&event.0] {
+            for handler in self.handlers.get(&event.0).unwrap_or(&Vec::new()) {
                 handler(&event.1);
             }
         }
