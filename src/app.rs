@@ -88,7 +88,7 @@ impl<'a> ApplicationHandler for App {
 
                 self.window.as_ref().unwrap().request_redraw();
             }
-            WindowEvent::KeyboardInput { event, .. } => {
+            WindowEvent::KeyboardInput { event: _, .. } => {
                 /*if let Some(vk_renderer) = &mut self.vk_renderer {
                     vk_renderer.process_key_event(event);
                     vk_renderer.draw_frame();

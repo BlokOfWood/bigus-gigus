@@ -1,7 +1,4 @@
-use std::{
-    ops::{Add, Index, IndexMut, Mul},
-    usize,
-};
+use std::ops::{Add, Index, IndexMut, Mul};
 
 #[repr(C)]
 #[derive(Debug)]

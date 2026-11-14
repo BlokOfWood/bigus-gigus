@@ -1,5 +1,3 @@
-use std::u64;
-
 pub struct BitSet {
     memberships: u64,
 }
